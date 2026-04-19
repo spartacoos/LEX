@@ -60,6 +60,15 @@ uv run mlx_lm.server \
 
 **Linux + NVIDIA GPU (llama.cpp):**
 
+On Linux with CUDA, before any `uv run` command, source the env helper to
+expose the venv's bundled CUDA libraries:
+
+```bash
+source scripts/env.sh
+```
+
+(Harmless no-op on macOS. Idempotent — safe to re-source.)
+
 ```bash
 # Download a GGUF model first (example: Gemma-2 2B Q4_K_M, ~1.5 GB).
 mkdir -p models
