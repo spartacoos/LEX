@@ -9,8 +9,6 @@
 # Harmless on macOS — the find returns nothing and the var just stays
 # whatever it was. Idempotent — re-sourcing doesn't duplicate entries.
 
-set -e
-
 if [[ ! -d "$(dirname "${BASH_SOURCE[0]}")/../.venv" ]]; then
   echo "No .venv found. Run 'uv sync --extra <platform>' first." >&2
   return 1 2>/dev/null || exit 1

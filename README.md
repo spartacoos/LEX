@@ -41,6 +41,15 @@ uv sync --extra llm-llamacpp         # Linux + NVIDIA GPU
 uv sync --extra llm-llamacpp-cpu     # Linux CPU-only
 ```
 
+On Linux with CUDA, before any `uv run` command, source the env helper
+to expose the venv's bundled CUDA libraries:
+
+```bash
+source scripts/env.sh
+```
+
+(Harmless no-op on macOS. Idempotent — safe to re-source.)
+
 ### 2. Start services
 
 ```bash
@@ -60,52 +69,46 @@ uv run mlx_lm.server \
 
 **Linux + NVIDIA GPU (llama.cpp):**
 
-On Linux with CUDA, before any `uv run` command, source the env helper to
-expose the venv's bundled CUDA libraries:
-
 ```bash
-source scripts/env.sh
-```
-
-(Harmless no-op on macOS. Idempotent — safe to re-source.)
-
-```bash
-# Download a GGUF model first (example: Gemma-2 2B Q4_K_M, ~1.5 GB).
+# Download a GGUF model first (Gemma-4 E4B Q4_K_M, ~5.3 GB).
 mkdir -p models
-huggingface-cli download \
-  bartowski/gemma-2-2b-it-GGUF \
-  gemma-2-2b-it-Q4_K_M.gguf \
+uv run hf download \
+  ggml-org/gemma-4-E4B-it-GGUF \
+  gemma-4-E4B-it-Q4_K_M.gguf \
   --local-dir models
 
-# Run the server. --n_gpu_layers -1 offloads everything to GPU; reduce if OOM.
+# Run the server. --n_gpu_layers -1 offloads everything to GPU;
+# reduce if you hit OOM (E4B fits comfortably on an 8GB card).
 uv run python -m llama_cpp.server \
-  --model models/gemma-2-2b-it-Q4_K_M.gguf \
+  --model models/gemma-4-E4B-it-Q4_K_M.gguf \
   --host 127.0.0.1 --port 8080 \
-  --n_gpu_layers -1 \
-  --chat_format gemma
+  --n_gpu_layers -1
 ```
 
-Set `.env` accordingly:
+### 4. Configure `.env`
+
+Create `.env` in the project root with settings matching your platform.
+See `.env.example` for the full list of variables. Minimum needed:
 
 ```bash
-# Mac
+# macOS
 LEX_LLM__BASE_URL=http://localhost:8080/v1
 LEX_LLM__MODEL=mlx-community/gemma-4-E4B-it-4bit
 LEX_LLM__MAX_TOKENS=2048
 
 # Linux
 LEX_LLM__BASE_URL=http://localhost:8080/v1
-LEX_LLM__MODEL=gemma-2-2b-it         # llama.cpp uses the model basename
+LEX_LLM__MODEL=gemma-4-e4b-it
 LEX_LLM__MAX_TOKENS=2048
 ```
 
-### 4. Ingest a directive
+### 5. Ingest a directive
 
 ```bash
 uv run lex ingest 32018L1972
 ```
 
-### 5. Ask questions
+### 6. Ask questions
 
 ```bash
 uv run lex ask "What is a very high capacity network?"
@@ -135,25 +138,48 @@ uv run pytest -m eval -v
 This is the intended workflow for local dev. Small model for everyday
 RAG; large model stood up temporarily for evals.
 
-Terminal 1 — the RAG LLM:
+Terminal 1 — the RAG LLM (Gemma-4 E4B):
+
 ```bash
-uv run mlx_lm.server --model mlx-community/gemma-4-E4B-it-4bit --port 8080
+# macOS
+uv run mlx_lm.server \
+  --model mlx-community/gemma-4-E4B-it-4bit \
+  --port 8080 --host 127.0.0.1
+
+# Linux
+uv run python -m llama_cpp.server \
+  --model models/gemma-4-E4B-it-Q4_K_M.gguf \
+  --host 127.0.0.1 --port 8080 \
+  --n_gpu_layers -1
 ```
 
-Terminal 2 — the judge LLM:
+Terminal 2 — the judge LLM (Gemma-4 31B):
+
 ```bash
-# macOS example:
-uv run mlx_lm.server --model mlx-community/gemma-4-31B-it-4bit --port 8081
-# Linux example (llama.cpp):
+# macOS
+uv run mlx_lm.server \
+  --model mlx-community/gemma-4-31B-it-4bit \
+  --port 8081 --host 127.0.0.1
+
+# Linux — download first, then run.
+# The 31B won't fit an 8GB GPU alone; set --n_gpu_layers to a smaller
+# number to split between GPU and system RAM.
+uv run hf download \
+  ggml-org/gemma-4-31B-it-GGUF \
+  gemma-4-31B-it-Q4_K_M.gguf \
+  --local-dir models
+
 uv run python -m llama_cpp.server \
-  --model models/gemma-2-27b-it-Q4_K_M.gguf \
-  --host 127.0.0.1 --port 8081 --n_gpu_layers 40 --chat_format gemma
+  --model models/gemma-4-31B-it-Q4_K_M.gguf \
+  --host 127.0.0.1 --port 8081 \
+  --n_gpu_layers 20
 ```
 
 Terminal 3 — run eval with the judge configured:
+
 ```bash
 export LEX_EVAL_JUDGE__BASE_URL=http://localhost:8081/v1
-export LEX_EVAL_JUDGE__MODEL=gemma-2-27b-it
+export LEX_EVAL_JUDGE__MODEL=gemma-4-31b-it
 uv run pytest -m eval -v
 ```
 
@@ -211,15 +237,31 @@ tests/
   test_lex.py          Smoke tests + parametrised eval
   conftest.py          Writes CSV + Markdown reports
 
-SPEC.md              Design doc (reference)
+scripts/
+  env.sh           Linux CUDA LD_LIBRARY_PATH helper
+
+docker-compose.yml        Qdrant + Redis for all platforms
+docker-compose.cuda.yml   Optional GPU LLM overlay for production
+SPEC.md                   Design doc (reference)
 ```
 
 ## Troubleshooting
 
-**`Evaluation LLM outputted an invalid JSON. Please use a better evaluation model.`** — Your judge model is too small to produce well-formed JSON. Use the split-RAG-and-judge workflow with a bigger judge, or point `LEX_EVAL_JUDGE__BASE_URL` at a remote API.
+**`Evaluation LLM outputted an invalid JSON. Please use a better evaluation model.`** — Your judge model is too small to produce well-formed JSON. Use the split-RAG-and-judge workflow with a bigger judge (e.g. Gemma-4 31B), or point `LEX_EVAL_JUDGE__BASE_URL` at a remote API.
 
 **`MPS backend out of memory`** — macOS only. Other processes are using Metal. Quit anything GPU-heavy, or drop `LEX_RERANKER__BATCH_SIZE=2` in `.env`.
 
+**`libcudart.so.12: cannot open shared object file`** (Linux) — You forgot to `source scripts/env.sh` before running `uv run …`. The script configures `LD_LIBRARY_PATH` to find the venv's bundled CUDA libraries.
+
+**Terminal closes when running `huggingface-cli`** (Linux) — That CLI is deprecated; use `hf` instead. All commands here already use the new name.
+
 **`llama-cpp-python` fails to install on Linux** — The prebuilt CUDA wheels are indexed via `pyproject.toml`'s `[tool.uv.sources]`. If uv still tries to build from source, it means your system lacks a compatible prebuilt. Easiest fix: install the CPU extra (`uv sync --extra llm-llamacpp-cpu`) first, then swap after verifying.
 
-**`docker compose` not found** — On Ubuntu with the Ubuntu-shipped `docker.io`, the compose plugin isn't bundled. Install via the official binary release (see Docker's docs) or switch to Docker's own apt repo.
+**`docker compose` not found** (Ubuntu with `docker.io`) — The compose plugin isn't bundled. Install via the official binary release:
+
+```bash
+sudo mkdir -p /usr/local/lib/docker/cli-plugins
+sudo curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
+  -o /usr/local/lib/docker/cli-plugins/docker-compose
+sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
+```
