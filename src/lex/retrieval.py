@@ -101,21 +101,29 @@ class BGEReranker:
     don't compare scores across different queries.
     """
 
-    def __init__(self, model_name: str, batch_size: int = 16) -> None:
+    def __init__(
+        self,
+        model_name: str,
+        batch_size: int = 16,
+        device: str = "auto",
+    ) -> None:
         # Lazy import to keep `import lex` fast.
         from sentence_transformers import CrossEncoder
         import torch
-
         log.info("reranker.loading", model=model_name)
 
-        # Device selection mirrors the embedder: MPS on Apple Silicon,
-        # CUDA on Linux GPU boxes, CPU otherwise.
-        if torch.backends.mps.is_available():
-            device = "mps"
-        elif torch.cuda.is_available():
-            device = "cuda"
-        else:
-            device = "cpu"
+        # Device selection: honor explicit setting, else auto-detect.
+        # On 8 GB GPUs hosting an LLM + embedder, the reranker may not
+        # fit — setting this to "cpu" trades ~1-2s per query for
+        # guaranteed fit. Defaults to "auto" for backward compat with
+        # higher-VRAM machines.
+        if device == "auto":
+            if torch.backends.mps.is_available():
+                device = "mps"
+            elif torch.cuda.is_available():
+                device = "cuda"
+            else:
+                device = "cpu"
 
         # `trust_remote_code=True` for the same reason as the embedder:
         # BGE ships custom tokenizer plumbing.
@@ -422,6 +430,7 @@ def build_retrieve_deps(settings: Settings) -> RetrieveDeps:
     reranker = BGEReranker(
         model_name=settings.reranker.model,
         batch_size=settings.reranker.batch_size,
+        device=settings.reranker.device,
     )
     qdrant = AsyncQdrantClient(url=settings.qdrant.url)
     return RetrieveDeps(

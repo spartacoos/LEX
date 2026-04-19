@@ -85,6 +85,11 @@ class EmbeddingSettings(BaseModel):
 class RerankerSettings(BaseModel):
     model: str = "BAAI/bge-reranker-v2-m3"
     batch_size: int = 4 #was 16 - dropped for MPS stability on longer chunks
+    # "auto" picks cuda/mps if available, else cpu. Set explicitly to
+    # "cpu" on machines where the GPU is already hosting the LLM and
+    # embedder (e.g. 8 GB consumer cards). Takes ~1-2s per query on CPU
+    # vs ~0.1s on GPU, acceptable for interactive use.
+    device: str = "auto"  # "auto" | "cuda" | "mps" | "cpu"
 
 
 class ChunkingSettings(BaseModel):
