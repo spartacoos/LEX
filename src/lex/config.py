@@ -80,6 +80,10 @@ class EmbeddingSettings(BaseModel):
     # Dense dimension for BGE-M3. Hardcoded because changing the model
     # means changing the collection schema — not a silent env-var flip.
     dense_dim: int = 1024
+    # "auto" picks cuda/mps if available, else cpu. Override to "cpu"
+    # on memory-constrained GPUs hosting an LLM — same rationale as
+    # reranker.device.
+    device: str = "auto"
 
 
 class RerankerSettings(BaseModel):

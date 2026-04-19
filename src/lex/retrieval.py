@@ -426,6 +426,7 @@ def build_retrieve_deps(settings: Settings) -> RetrieveDeps:
     embedder = BGEEmbedder(
         model_name=settings.embedding.model,
         batch_size=settings.embedding.batch_size,
+        device=settings.embedding.device,
     )
     reranker = BGEReranker(
         model_name=settings.reranker.model,

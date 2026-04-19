@@ -512,7 +512,7 @@ class BGEEmbedder:
     One forward pass produces all of them because they share the encoder.
     """
 
-    def __init__(self, model_name: str, batch_size: int = 16) -> None:
+    def __init__(self, model_name: str, batch_size: int = 16, device: str = "auto") -> None:
         # Imported lazily so `import lex` stays fast — torch is heavy.
         import torch
         from transformers import AutoModel, AutoTokenizer
@@ -525,14 +525,16 @@ class BGEEmbedder:
         # get the plain encoder output.
         self._model = AutoModel.from_pretrained(model_name, trust_remote_code=True)
 
-        # Pick the best available device. MPS = Apple Silicon Metal,
-        # much faster than CPU for encoder workloads.
-        if torch.backends.mps.is_available():
-            self._device = "mps"
-        elif torch.cuda.is_available():
-            self._device = "cuda"
-        else:
-            self._device = "cpu"
+        # Pick the device. Honor explicit setting; else auto-detect.
+        # MPS = Apple Silicon Metal, CUDA = NVIDIA GPUs, CPU = fallback.
+        if device == "auto":
+            if torch.backends.mps.is_available():
+                device = "mps"
+            elif torch.cuda.is_available():
+                device = "cuda"
+            else:
+                device = "cpu"
+        self._device = device
         self._model = self._model.to(self._device).eval()
 
         self._batch_size = batch_size
@@ -877,6 +879,7 @@ def build_ingest_deps(
     embedder = BGEEmbedder(
         model_name=settings.embedding.model,
         batch_size=settings.embedding.batch_size,
+        device=settings.embedding.device,
     )
     qdrant = AsyncQdrantClient(url=settings.qdrant.url)
     redis = aioredis.from_url(settings.redis.url, decode_responses=True)
