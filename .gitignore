@@ -1,0 +1,31 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.pytest_cache/
+
+# uv
+.python-version
+
+# Local env
+.env
+.env.local
+
+# Chainlit scratch
+.chainlit/
+.files/
+chainlit.md
+
+# Tests / reports
+tests/reports/
+tests/__pycache__/
+
+# Editor
+.vscode/
+.idea/
+.DS_Store
+
+# Model/data caches (will re-download on Linux)
+models/
+data/

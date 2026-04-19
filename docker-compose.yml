@@ -1,0 +1,80 @@
+# ---------------------------------------------------------------------------
+# LEX service stack.
+#
+# We run *infrastructure* in Docker (deterministic, identical everywhere)
+# and the *application + LLM* on the host (fast iteration + Apple Silicon
+# Metal acceleration for the LLM via MLX).
+#
+# For cloud/Linux deploy, a separate compose file (cloud-compose.yml) will
+# add a GPU-backed LLM container. For local development on Mac, the LLM
+# runs on host — see README for the exact command.
+#
+# Bring up:     docker compose up -d
+# Tear down:    docker compose down
+# Wipe data:    docker compose down -v     (deletes volumes too!)
+# ---------------------------------------------------------------------------
+
+services:
+
+  # -------------------------------------------------------------------------
+  # Qdrant — vector database.
+  #
+  # Stores our embedded chunks. We use hybrid search via named vectors
+  # ("dense" and "sparse") which requires a recent version.
+  # -------------------------------------------------------------------------
+  qdrant:
+    image: qdrant/qdrant:v1.12.4
+    ports:
+      - "6333:6333"   # REST + dashboard (http://localhost:6333/dashboard)
+      - "6334:6334"   # gRPC (what the client prefers for performance)
+    volumes:
+      - qdrant_data:/qdrant/storage
+    restart: unless-stopped
+
+  # -------------------------------------------------------------------------
+  # Redis — job queue + pub/sub + result cache.
+  #
+  # The ingestion state machine lives here: each job's current state
+  # (Queued → Fetching → Parsing → ...) is a hash keyed by cmd_id.
+  # Pub/sub channels carry progress updates to the UI.
+  # -------------------------------------------------------------------------
+  redis:
+    image: redis:7.4-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    restart: unless-stopped
+    # --appendonly yes = durability. Jobs survive a Redis restart.
+    command: ["redis-server", "--appendonly", "yes"]
+
+  # -------------------------------------------------------------------------
+  # Langfuse — LLM observability (optional).
+  #
+  # Traces every RAG call: query → retrieved chunks → prompt → completion
+  # → citations. Invaluable when an answer goes wrong and you need to
+  # figure out whether it was retrieval's fault or generation's fault.
+  #
+  # Commented out by default because it brings its own Postgres and adds
+  # startup time. Uncomment when you want to watch traces.
+  # -------------------------------------------------------------------------
+  # langfuse:
+  #   image: langfuse/langfuse:2
+  #   depends_on: [langfuse-db]
+  #   ports: ["3000:3000"]
+  #   environment:
+  #     DATABASE_URL: postgresql://postgres:postgres@langfuse-db:5432/postgres
+  #     NEXTAUTH_SECRET: "change-me"
+  #     SALT: "change-me"
+  #     NEXTAUTH_URL: http://localhost:3000
+  #     TELEMETRY_ENABLED: "false"
+  # langfuse-db:
+  #   image: postgres:16-alpine
+  #   environment:
+  #     POSTGRES_PASSWORD: postgres
+  #   volumes: [langfuse_db_data:/var/lib/postgresql/data]
+
+volumes:
+  qdrant_data:
+  redis_data:
+  # langfuse_db_data:

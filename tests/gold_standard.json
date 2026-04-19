@@ -1,0 +1,215 @@
+{
+  "celex_id": "32018L1972",
+  "questions": [
+    {
+      "id": "def_01",
+      "category": "definitional",
+      "question": "What is an electronic communications network?",
+      "expected_article_refs": ["2"],
+      "expected_answer_summary": "Transmission systems, including switching or routing equipment, enabling the conveyance of signals, regardless of the type of information conveyed."
+    },
+    {
+      "id": "def_02",
+      "category": "definitional",
+      "question": "What is an electronic communications service?",
+      "expected_article_refs": ["2"],
+      "expected_answer_summary": "A service normally provided for remuneration via electronic communications networks — including internet access, interpersonal communications services, and transmission services."
+    },
+    {
+      "id": "def_03",
+      "category": "definitional",
+      "question": "What is a very high capacity network?",
+      "expected_article_refs": ["2", "82"],
+      "expected_answer_summary": "A network meeting BEREC criteria for down/uplink bandwidth, resilience, latency, with performance equivalent to optical fibre up to multi-dwelling buildings or base stations."
+    },
+    {
+      "id": "def_04",
+      "category": "definitional",
+      "question": "What is a number-based interpersonal communications service?",
+      "expected_article_refs": ["2"],
+      "expected_answer_summary": "An interpersonal communications service that connects with publicly assigned numbering resources from a national or international numbering plan."
+    },
+    {
+      "id": "def_05",
+      "category": "definitional",
+      "question": "What does 'significant market power' mean?",
+      "expected_article_refs": ["63"],
+      "expected_answer_summary": "An undertaking is deemed to have SMP if it enjoys a position equivalent to dominance under competition law — significant power, alone or jointly, to behave independently of competitors, customers, and consumers."
+    },
+    {
+      "id": "proc_01",
+      "category": "procedural",
+      "question": "What is the market analysis procedure?",
+      "expected_article_refs": ["64", "65", "66", "67"],
+      "expected_answer_summary": "National regulatory authorities define relevant markets, analyse effective competition, designate undertakings with SMP, and impose proportionate remedies. BEREC and Commission consultation applies."
+    },
+    {
+      "id": "proc_02",
+      "category": "procedural",
+      "question": "How are penalties applied under this Directive?",
+      "expected_article_refs": ["29"],
+      "expected_answer_summary": "Member States set appropriate, effective, proportionate and dissuasive penalties for infringements, including fines and non-criminal periodic penalties. Art. 22(3)-specific penalties apply to misleading information."
+    },
+    {
+      "id": "proc_03",
+      "category": "procedural",
+      "question": "What is the procedure for consistent application of remedies across Member States?",
+      "expected_article_refs": ["32", "33"],
+      "expected_answer_summary": "Draft measures affecting trade between Member States must be notified to the Commission, BEREC, and other NRAs; the Commission may require amendment or withdrawal."
+    },
+    {
+      "id": "proc_04",
+      "category": "procedural",
+      "question": "What rules apply to the authorisation of electronic communications networks and services?",
+      "expected_article_refs": ["12", "13", "14"],
+      "expected_answer_summary": "A general authorisation regime applies; specific conditions are limited to those listed in Annex I. Declarations replace individual licences for most providers."
+    },
+    {
+      "id": "proc_05",
+      "category": "procedural",
+      "question": "How is radio spectrum assigned?",
+      "expected_article_refs": ["45", "46", "47", "48", "55"],
+      "expected_answer_summary": "General authorisation is the default; individual rights of use where justified. Member States apply objective, transparent, non-discriminatory, proportionate selection criteria."
+    },
+    {
+      "id": "cross_01",
+      "category": "cross-reference",
+      "question": "Which articles govern universal service obligations?",
+      "expected_article_refs": ["84", "85", "86", "87", "88", "89", "90", "91", "92"],
+      "expected_answer_summary": "Title III of Part III (Articles 84-92) governs universal service availability, affordability, quality, designation of providers, and financing."
+    },
+    {
+      "id": "cross_02",
+      "category": "cross-reference",
+      "question": "What obligations apply to undertakings with significant market power?",
+      "expected_article_refs": ["68", "69", "70", "71", "72", "73", "74"],
+      "expected_answer_summary": "NRAs may impose obligations on transparency, non-discrimination, accounting separation, access to and use of specific network facilities, price control, and cost accounting."
+    },
+    {
+      "id": "cross_03",
+      "category": "cross-reference",
+      "question": "Which articles concern end-user rights?",
+      "expected_article_refs": ["99", "100", "101", "102", "103", "104", "105", "106", "107", "108", "109", "110", "111", "112", "113", "114", "115", "116"],
+      "expected_answer_summary": "Part III Title II (Articles 99-116) covers end-user rights: non-discrimination, information requirements, contract durations, bundled offers, switching, emergency communications."
+    },
+    {
+      "id": "cross_04",
+      "category": "cross-reference",
+      "question": "Which articles concern cross-border electronic communications?",
+      "expected_article_refs": ["65", "96"],
+      "expected_answer_summary": "Article 65 covers transnational markets; Article 96 covers provision of cross-border services and the one-stop-shop procedure."
+    },
+    {
+      "id": "cross_05",
+      "category": "cross-reference",
+      "question": "How is BEREC involved in regulatory procedures?",
+      "expected_article_refs": ["32", "33", "35", "66", "82"],
+      "expected_answer_summary": "BEREC provides opinions on draft measures, issues guidelines (including on VHCN), and coordinates consistent application of the Directive."
+    },
+    {
+      "id": "neg_01",
+      "category": "negative",
+      "question": "Does this Directive cover broadcasting content?",
+      "expected_article_refs": [],
+      "expected_answer_summary": "No. The Directive applies to networks and services, not to broadcasting content — content regulation is governed by the Audiovisual Media Services Directive."
+    },
+    {
+      "id": "neg_02",
+      "category": "negative",
+      "question": "What are the VAT rates for telecoms services?",
+      "expected_article_refs": [],
+      "expected_answer_summary": "The Directive does not set VAT rates. VAT is governed by other EU instruments, not EECC."
+    },
+    {
+      "id": "neg_03",
+      "category": "negative",
+      "question": "Does this Directive apply to financial services?",
+      "expected_article_refs": [],
+      "expected_answer_summary": "No. The Directive is the European Electronic Communications Code and does not regulate financial services."
+    },
+    {
+      "id": "neg_04",
+      "category": "negative",
+      "question": "Does the Directive set consumer data privacy rules?",
+      "expected_article_refs": [],
+      "expected_answer_summary": "Privacy of electronic communications is governed by the ePrivacy framework, not by EECC. EECC focuses on market access, spectrum, end-user rights."
+    },
+    {
+      "id": "multi_01",
+      "category": "multi-hop",
+      "question": "What obligations does an SMP undertaking face regarding access to civil engineering?",
+      "expected_article_refs": ["72"],
+      "expected_answer_summary": "An NRA may impose obligations to meet reasonable access requests to civil engineering (ducts, poles, cabinets) where replication would be economically inefficient or physically impracticable."
+    },
+    {
+      "id": "multi_02",
+      "category": "multi-hop",
+      "question": "What process determines whether co-investment commitments exempt an SMP undertaking from access obligations?",
+      "expected_article_refs": ["76", "79"],
+      "expected_answer_summary": "Under Art. 76 an SMP undertaking may offer co-investment commitments; Art. 79 sets the commitment procedure with NRA market-testing and binding decisions."
+    },
+    {
+      "id": "multi_03",
+      "category": "multi-hop",
+      "question": "When can national regulators refrain from imposing ex ante remedies?",
+      "expected_article_refs": ["67", "76", "80"],
+      "expected_answer_summary": "NRAs refrain when the market is effectively competitive (Art. 67), when qualifying co-investment offers exist (Art. 76), or for wholesale-only operators meeting Art. 80 conditions."
+    },
+    {
+      "id": "multi_04",
+      "category": "multi-hop",
+      "question": "What safeguards apply to emergency communications?",
+      "expected_article_refs": ["109", "110"],
+      "expected_answer_summary": "Art. 109 requires free-of-charge access to emergency services via 112; Art. 110 mandates public warning systems for imminent or developing major emergencies and disasters."
+    },
+    {
+      "id": "multi_05",
+      "category": "multi-hop",
+      "question": "Under what conditions may Member States impose must-carry obligations?",
+      "expected_article_refs": ["114"],
+      "expected_answer_summary": "Member States may impose reasonable must-carry obligations on networks used for distribution of radio or TV broadcast channels, where a significant number of end-users use the network as main means of reception, and only for specified general-interest objectives."
+    },
+    {
+      "id": "def_06",
+      "category": "definitional",
+      "question": "What is the Body of European Regulators for Electronic Communications?",
+      "expected_article_refs": ["3"],
+      "expected_answer_summary": "BEREC is established by the BEREC Regulation and contributes to consistent application of the regulatory framework and the development of the internal market."
+    },
+    {
+      "id": "def_07",
+      "category": "definitional",
+      "question": "What is a 'national regulatory authority'?",
+      "expected_article_refs": ["2"],
+      "expected_answer_summary": "A body entrusted by a Member State with any regulatory tasks assigned by this Directive or BEREC Regulation."
+    },
+    {
+      "id": "proc_06",
+      "category": "procedural",
+      "question": "How are disputes between undertakings resolved?",
+      "expected_article_refs": ["26", "27"],
+      "expected_answer_summary": "NRAs issue binding decisions on disputes between providers within four months (Art. 26); cross-border disputes follow Art. 27 coordination procedures."
+    },
+    {
+      "id": "proc_07",
+      "category": "procedural",
+      "question": "What procedure applies to changes in contractual conditions for end-users?",
+      "expected_article_refs": ["105"],
+      "expected_answer_summary": "End-users must be notified of any change in contractual conditions at least one month in advance and given the right to terminate without penalty."
+    },
+    {
+      "id": "cross_06",
+      "category": "cross-reference",
+      "question": "Which provisions concern number portability?",
+      "expected_article_refs": ["106"],
+      "expected_answer_summary": "Art. 106 requires Member States to ensure number portability for subscribers to number-based interpersonal communications services, on request, with specific timeframes."
+    },
+    {
+      "id": "cross_07",
+      "category": "cross-reference",
+      "question": "Which articles cover security of networks and services?",
+      "expected_article_refs": ["40", "41"],
+      "expected_answer_summary": "Art. 40 mandates appropriate security measures by providers; Art. 41 provides for competent authorities' implementation, auditing, and notification of significant incidents."
+    }
+  ]
+}
