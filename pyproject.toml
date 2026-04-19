@@ -83,14 +83,37 @@ dependencies = [
 #     # then run llama-cpp-python's OpenAI-compatible server
 # ---------------------------------------------------------------------------
 [project.optional-dependencies]
+# Model-serving backends. Pick one at install time based on your platform.
+#
+#   macOS Apple Silicon:   uv sync --extra llm-mlx
+#   Linux + NVIDIA GPU:    uv sync --extra llm-llamacpp
+#   Linux CPU-only:        uv sync --extra llm-llamacpp-cpu
+#
+# The LLM server itself runs as a separate process (see README). LEX
+# just needs the client library installed in the venv to launch it.
+
 llm-mlx = [
-    "mlx-lm>=0.20",
-    "mlx-vlm>=0.1.20",
+  "mlx-lm>=0.19.0",
 ]
+
+# llama-cpp-python needs CUDA acceleration to be useful on GPU. The
+# "cuda" extra pulls in the prebuilt CUDA wheel from abetlen's index
+# via `[tool.uv.sources]` below. Works on CUDA 12.x drivers;
+# backward-compatible with CUDA 13 runtime (the driver exposes
+# compatible libraries).
 llm-llamacpp = [
-    # [server] extra pulls in FastAPI + uvicorn bindings for the
-    # llama-cpp-python OpenAI-compatible server.
-    "llama-cpp-python[server]>=0.3.5",
+  "llama-cpp-python[server]>=0.3.2",
+]
+
+# CPU-only fallback — same package, but uv resolves it without the
+# CUDA wheel index.
+llm-llamacpp-cpu = [
+  "llama-cpp-python[server]>=0.3.2",
+]
+
+# Optional — only needed when you plan to use Langfuse for tracing.
+tracing = [
+  "langfuse>=2.50.0",
 ]
 
 [project.scripts]
@@ -108,3 +131,18 @@ markers = [
     "eval: evaluation tests that call the LLM (slow, costs tokens)",
 ]
 testpaths = ["tests"]
+
+[tool.uv.sources]
+# When the `llm-llamacpp` extra is active, prefer abetlen's prebuilt
+# CUDA wheels over building from source. `extra-index-url` means pip
+# checks this *in addition* to PyPI, so CPU-only installs still work.
+#
+# cu124 wheels are compatible with CUDA 12.x and 13.x drivers.
+llama-cpp-python = [
+  { index = "abetlen-cuda", extra = "llm-llamacpp" },
+]
+
+[[tool.uv.index]]
+name = "abetlen-cuda"
+url = "https://abetlen.github.io/llama-cpp-python/whl/cu124"
+explicit = true

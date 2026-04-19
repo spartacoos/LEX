@@ -99,23 +99,37 @@ def _load_gold() -> list[dict]:
 
 def _make_deepeval_model(settings):
     """
-    Build a DeepEvalBaseLLM that points at our local Gemma.
+    Build a DeepEvalBaseLLM that points at the judge LLM.
 
-    DeepEval's built-in metrics use an LLM as judge. By default it
-    wants an OpenAI API key. We override with a local adapter that
-    hits our MLX-served Gemma via the OpenAI protocol — same endpoint
-    the rest of LEX uses.
+    Uses `settings.eval_judge.base_url` when set, else falls back to
+    the RAG LLM config. This lets you run small-model RAG + big-model
+    judge with no code changes — just env vars:
+
+        export LEX_EVAL_JUDGE__BASE_URL=http://localhost:8081/v1
+        export LEX_EVAL_JUDGE__MODEL=gemma-4-31b
+
+    If the judge is the same model as RAG, leave it unset.
     """
     from deepeval.models.base_model import DeepEvalBaseLLM
     from openai import OpenAI
 
-    class LocalGemma(DeepEvalBaseLLM):
+    # Pick judge endpoint + model: explicit judge settings win, RAG is fallback.
+    judge_cfg = settings.eval_judge
+    base_url = judge_cfg.base_url or settings.llm.base_url
+    model = judge_cfg.model or settings.llm.model
+    api_key = judge_cfg.api_key if judge_cfg.base_url else settings.llm.api_key
+    timeout = judge_cfg.timeout_s
+    temperature = judge_cfg.temperature
+    max_tokens = judge_cfg.max_tokens
+
+    class Judge(DeepEvalBaseLLM):
         def __init__(self):
             self._client = OpenAI(
-                base_url=settings.llm.base_url,
-                api_key=settings.llm.api_key,
+                base_url=base_url,
+                api_key=api_key,
+                timeout=timeout,
             )
-            self._model = settings.llm.model
+            self._model = model
 
         def load_model(self):
             return self._client
@@ -124,8 +138,8 @@ def _make_deepeval_model(settings):
             resp = self._client.chat.completions.create(
                 model=self._model,
                 messages=[{"role": "user", "content": prompt}],
-                temperature=0.0,
-                max_tokens=512,
+                temperature=temperature,
+                max_tokens=max_tokens,
             )
             return resp.choices[0].message.content or ""
 
@@ -135,8 +149,7 @@ def _make_deepeval_model(settings):
         def get_model_name(self) -> str:
             return self._model
 
-    return LocalGemma()
-
+    return Judge()
 
 def _citation_correctness(
     expected_refs: list[str],

@@ -108,6 +108,21 @@ class RetrievalSettings(BaseModel):
 # Top-level settings. This is the thing the rest of the code imports.
 # ---------------------------------------------------------------------------
 
+class EvalJudgeSettings(BaseModel):
+    """
+    LLM used by DeepEval as the judge during `pytest -m eval`.
+
+    Separate from `LLMSettings` so you can run a small fast model for
+    everyday RAG and a beefier one only when evaluating. All fields
+    optional — if `base_url` is unset, eval falls back to LLMSettings.
+    """
+    base_url: str | None = None
+    model: str | None = None
+    api_key: str = "sk-local"       # placeholder for local OpenAI-protocol servers
+    timeout_s: float = 600.0        # judges can be slow on big models
+    temperature: float = 0.0        # deterministic scoring
+    max_tokens: int = 1024
+
 class Settings(BaseSettings):
     """
     Read at startup. Everything downstream takes a `Settings` or reaches
@@ -132,6 +147,7 @@ class Settings(BaseSettings):
     qdrant: QdrantSettings = Field(default_factory=QdrantSettings)
     redis: RedisSettings = Field(default_factory=RedisSettings)
     llm: LLMSettings = Field(default_factory=LLMSettings)
+    eval_judge: EvalJudgeSettings = Field(default_factory=EvalJudgeSettings)
     embedding: EmbeddingSettings = Field(default_factory=EmbeddingSettings)
     reranker: RerankerSettings = Field(default_factory=RerankerSettings)
     chunking: ChunkingSettings = Field(default_factory=ChunkingSettings)
