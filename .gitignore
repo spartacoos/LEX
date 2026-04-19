@@ -6,7 +6,6 @@ __pycache__/
 .pytest_cache/
 
 # uv
-.python-version
 
 # Local env
 .env
