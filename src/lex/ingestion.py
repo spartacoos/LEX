@@ -43,6 +43,8 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Iterable, Literal
 
+from pathlib import Path
+
 import redis.asyncio as aioredis
 import structlog
 from lxml import etree
@@ -586,7 +588,11 @@ class BGEEmbedder:
 
         log.info("embedder.loading", model=model_name)
         self._torch = torch
-        self._tokenizer = AutoTokenizer.from_pretrained(model_name)
+
+        from typing import cast
+        from transformers import AutoModel, AutoTokenizer, PreTrainedTokenizerBase
+
+        self._tokenizer = cast(PreTrainedTokenizerBase, AutoTokenizer.from_pretrained(model_name))
         # No trust_remote_code — confirmed inert for this checkpoint.
         self._model = AutoModel.from_pretrained(model_name)
 
@@ -701,9 +707,13 @@ async def write_chunks(
     dense: list[list[float]],
     sparse: list[dict[int, float]],
 ) -> int:
-    """Upsert all points for one directive in one batch. Returns count written."""
     points: list[qmodels.PointStruct] = []
     for chunk, d, s in zip(chunks, dense, sparse):
+        payload = chunk.model_dump()
+        # Add cross-reference graph edges at ingest time.
+        # Storing these in the payload means retrieval can follow
+        # legal cross-references without any additional model calls.
+        payload["cross_refs"] = _extract_cross_refs(chunk.text)
         points.append(qmodels.PointStruct(
             id=_chunk_uuid(chunk.id),
             vector={
@@ -713,23 +723,23 @@ async def write_chunks(
                     values=list(s.values()),
                 ),
             },
-            payload=chunk.model_dump(),
+            payload=payload,
         ))
-
     await client.upsert(collection_name=collection, points=points, wait=True)
     return len(points)
-
 
 # ===========================================================================
 # Section 5: Ingestion handler
 # (unchanged)
 # ===========================================================================
 
+from .model_server import ModelClient
+
 @dataclass
 class IngestDeps:
     settings: Settings
     source: Source
-    embedder: BGEEmbedder
+    embedder: BGEEmbedder | ModelClient
     qdrant: AsyncQdrantClient
     redis: aioredis.Redis
     states: list[str] = field(default_factory=lambda: [
@@ -757,6 +767,36 @@ def _eli_uri(celex_id: str) -> str:
     year, num = m.groups()
     return f"http://data.europa.eu/eli/dir/{year}/{int(num)}/oj"
 
+def _extract_cross_refs(text: str) -> list[str]:
+    """
+    Extract article numbers explicitly cross-referenced in a chunk's text.
+
+    Examples matched:
+      "in accordance with Article 67"        → ["67"]
+      "pursuant to Articles 69, 70 and 71"   → ["69", "70", "71"]
+      "referred to in Article 3(2)"          → ["3"]
+      "Articles 69 to 74"                    → ["69","70","71","72","73","74"]
+
+    These are stored in the Qdrant payload so that at retrieval time,
+    when a chunk is returned, we can automatically also fetch the articles
+    it explicitly references — following the legal cross-reference graph
+    one hop without requiring a second LLM call.
+    """
+    pattern = re.compile(
+        r'\b[Aa]rt(?:icle)?s?\.?\s+(\d+(?:\s*(?:\([\w\d]+\))*)'
+        r'(?:\s*(?:,|and|or|to)\s*\d+(?:\s*(?:\([\w\d]+\))*)*)*)'
+    )
+    refs: set[str] = set()
+    for m in pattern.finditer(text):
+        raw = m.group(1)
+        nums = re.findall(r'\d+', raw)
+        if 'to' in raw.lower() and len(nums) >= 2:
+            start, end = int(nums[0]), int(nums[-1])
+            if end - start <= 20:  # sanity cap — avoid "Articles 1 to 127"
+                refs.update(str(n) for n in range(start, end + 1))
+        else:
+            refs.update(nums)
+    return sorted(refs)
 
 @observe(name="ingest")
 async def handle_ingest(cmd: IngestCmd, deps: IngestDeps) -> IngestResult:
@@ -800,7 +840,7 @@ async def handle_ingest(cmd: IngestCmd, deps: IngestDeps) -> IngestResult:
     )
 
     # ---- Embed ---------------------------------------------------------
-    await _set_state(deps, cmd_id, "embedding", chunks=len(chunks))
+    await _set_state(deps, cmd_id, "embedding", chunks=str(len(chunks)))
     texts = [c.text for c in chunks]
     idf_path = deps.settings.bm25_idf_path(cmd.language)
     dense, sparse = await asyncio.to_thread(
@@ -822,7 +862,7 @@ async def handle_ingest(cmd: IngestCmd, deps: IngestDeps) -> IngestResult:
             state="failed", error=str(e),
         )
 
-    await _set_state(deps, cmd_id, "done", chunks=written)
+    await _set_state(deps, cmd_id, "done", chunks=str(written))
     return IngestResult(
         cmd_id=cmd.cmd_id, celex_id=cmd.celex_id, language=cmd.language,
         chunks_written=written, state="done",
@@ -845,7 +885,7 @@ def build_ingest_deps(
         CellarRest()
         if source_kind == "cellar"
         else LocalFile(
-            directory=(local_dir or settings.data_dir / "formex")
+            directory=Path(local_dir) if local_dir else settings.data_dir / "formex"
         )
     )
 

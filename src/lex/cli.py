@@ -31,6 +31,8 @@ from rich import print as rprint
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from rich.table import Table
 
+from typing import Literal
+
 from .commands import AnswerCmd, IngestCmd, RetrieveCmd, RetrieveFilter
 from .config import get_settings
 
@@ -444,7 +446,7 @@ def serve_models(
 def ingest(
     celex_id: str = typer.Argument(..., help="CELEX ID, e.g. 32018L1972"),
     language: str = typer.Option("en", "--language", "-l"),
-    source: str = typer.Option("cellar", "--source", "-s",
+    source: Literal["cellar", "local"] = typer.Option("cellar", "--source", "-s",
                                help="'cellar' or 'local'"),
     local_dir: str | None = typer.Option(None, "--local-dir"),
 ) -> None:

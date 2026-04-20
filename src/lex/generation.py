@@ -451,12 +451,12 @@ class LLMClient:
         Async generator yielding strings (one per SSE delta). Caller
         concatenates to form the full answer.
         """
-        stream = await self._client.chat.completions.create(
+        stream = await self._client.chat.completions.create( # ty: ignore[no-matching-overload]
             model=self._model,
             messages=messages,
             temperature=self._temperature,
             max_tokens=self._max_tokens,
-            stream=True,
+            stream=True, 
         )
         async for event in stream:
             # Each event has a choices[0].delta.content with the new

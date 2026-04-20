@@ -77,6 +77,7 @@ class Chunk(BaseModel):
     article: str | None = None    # "2", "64", ...
     paragraph: str | None = None  # "1", "2a", ...
     text: str
+    cross_refs: list[str] = []   # article numbers this chunk explicitly references
 
 
 # ---------------------------------------------------------------------------

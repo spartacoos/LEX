@@ -70,7 +70,7 @@ from typing import Iterable
 import structlog
 from qdrant_client import AsyncQdrantClient, models as qmodels
 
-from .commands import Chunk, RetrieveCmd, RetrieveResult, RetrievedChunk
+from .commands import Chunk, RetrieveCmd, RetrieveFilter, RetrieveResult, RetrievedChunk
 from .config import Settings
 from .ingestion import BGEEmbedder   # query-time reuse of the same model
 
@@ -200,7 +200,8 @@ def _build_filter(filters) -> qmodels.Filter | None:
             match=qmodels.MatchValue(value=filters.article),
         ))
 
-    return qmodels.Filter(must=conditions) if conditions else None
+    from typing import cast
+    return qmodels.Filter(must=cast(list[qmodels.Condition], conditions)) if conditions else None
 
 
 async def _hybrid_search(
@@ -318,12 +319,14 @@ async def _score_breakdown(
 # Pulls the query, runs the pipeline, returns a RetrieveResult.
 # ===========================================================================
 
+from .model_server import ModelClient
+
 @dataclass
 class RetrieveDeps:
     """Dependencies for the retrieve handler, bundled for test injection."""
     settings: Settings
-    embedder: BGEEmbedder
-    reranker: BGEReranker
+    embedder: BGEEmbedder | ModelClient
+    reranker: BGEReranker | ModelClient
     qdrant: AsyncQdrantClient
 
 @observe(name="retrieve")
@@ -385,7 +388,10 @@ async def handle_retrieve(cmd: RetrieveCmd, deps: RetrieveDeps) -> RetrieveResul
     )
 
     # ---- 4. Rerank ----------------------------------------------------
-    passages = [p.payload["text"] for p in fused]
+    from typing import cast, Any
+    # After the assert:
+    assert all(p.payload is not None for p in fused), "Qdrant returned points without payload"
+    passages = [cast(dict[str, Any], p.payload)["text"] for p in fused]
     rerank_scores = await asyncio.to_thread(
         deps.reranker.rerank, cmd.query, passages
     )
@@ -400,7 +406,9 @@ async def handle_retrieve(cmd: RetrieveCmd, deps: RetrieveDeps) -> RetrieveResul
     "recital":   0.85,
     }
     scored = [
-    (point, score * CHUNK_TYPE_BOOST.get(point.payload.get("chunk_type", "recital"), 0.85))
+    (point, score * CHUNK_TYPE_BOOST.get(
+        cast(dict[str, Any], point.payload).get("chunk_type", "recital"), 0.85
+    ))
     for point, score in scored
     ]
     scored.sort(key=lambda pair: pair[1], reverse=True)
@@ -413,9 +421,6 @@ async def handle_retrieve(cmd: RetrieveCmd, deps: RetrieveDeps) -> RetrieveResul
     chunks: list[RetrievedChunk] = []
     for point, rerank_score in top:
         pid = str(point.id)
-        # Reconstruct a Chunk from the payload we stored at ingest time.
-        # Payload is just the Chunk's model_dump(), so model_validate
-        # reverses it cleanly.
         chunk = Chunk.model_validate(point.payload)
         chunks.append(RetrievedChunk(
             chunk=chunk,
@@ -424,8 +429,58 @@ async def handle_retrieve(cmd: RetrieveCmd, deps: RetrieveDeps) -> RetrieveResul
             rerank_score=rerank_score,
         ))
 
-    return RetrieveResult(cmd_id=cmd.cmd_id, query=cmd.query, chunks=chunks)
+    # ---- 7. One-hop citation graph traversal --------------------------
+    # For each top-k chunk, fetch articles it explicitly cross-references
+    # that are not already in our result set. Mirrors how a lawyer reads
+    # a directive — following the cross-references automatically.
+    # Capped at 1 chunk per referenced article to avoid bloating context.
+    existing_articles = {rc.chunk.article for rc in chunks if rc.chunk.article}
+    graph_chunks: list[RetrievedChunk] = []
 
+    for rc in chunks:
+        for ref_article in rc.chunk.cross_refs:
+            if ref_article in existing_articles:
+                continue
+            existing_articles.add(ref_article)  # prevent duplicate fetches
+            ref_points = await _hybrid_search(
+                client=deps.qdrant,
+                collection=collection,
+                dense_vec=dense_vec,
+                sparse_vec=sparse_vec,
+                limit=2,
+                qfilter=_build_filter(RetrieveFilter(
+                    celex_id=cmd.filters.celex_id,
+                    language=cmd.filters.language,
+                    article=ref_article,
+                )),
+            )
+
+            existing_point_ids = {str(p.id) for p in fused}
+            existing_point_ids |= {str(p.id) for rc in graph_chunks
+                                   for p in []}  # placeholder — use chunk id instead
+            existing_chunk_ids = {rc.chunk.id for rc in chunks + graph_chunks}
+            for point in ref_points:
+                chunk_candidate = Chunk.model_validate(point.payload)
+                if chunk_candidate.id not in existing_chunk_ids:
+                    chunk = Chunk.model_validate(point.payload)
+                    graph_chunks.append(RetrievedChunk(
+                        chunk=chunk,
+                        dense_score=dense_scores.get(str(point.id), 0.0),
+                        sparse_score=sparse_scores.get(str(point.id), 0.0),
+                        rerank_score=0.0,  # graph hop — not reranked
+                    ))
+                    break  # one chunk per referenced article
+
+    if graph_chunks:
+        log.info("retrieval.graph_traversal",
+                 added=len(graph_chunks),
+                 cmd_id=cmd_id)
+
+    return RetrieveResult(
+        cmd_id=cmd.cmd_id,
+        query=cmd.query,
+        chunks=chunks + graph_chunks,
+    )
 
 # ===========================================================================
 # Section 5: Factory

@@ -93,7 +93,13 @@ class ModelServer:
     ) -> None:
         try:
             # Read until client sends EOF (SHUT_WR).
-            raw = await reader.read(_MAX_MSG)
+            chunks_buf: list[bytes] = []
+            while True:
+                chunk_buf = await reader.read(65536)
+                if not chunk_buf:
+                    break
+                chunks_buf.append(chunk_buf)
+            raw = b"".join(chunks_buf)
             req: dict[str, Any] = json.loads(raw)
             op = req.get("op")
 

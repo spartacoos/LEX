@@ -116,7 +116,7 @@ async def on_chat_start() -> None:
         cl.Action(
             name="add_directive",
             label="➕ Add Directive",
-            description="Ingest a new directive by CELEX ID",
+            description="Ingest a new directive by CELEX ID", # ty: ignore[unknown-argument] 
             payload={},
         )
     ]
@@ -134,6 +134,132 @@ async def on_chat_end() -> None:
 # ===========================================================================
 # Section 2: Main message handler — full RAG with streaming citations
 # ===========================================================================
+
+def _build_citation_graph(chunks: list, citations: list):
+    """
+    Build a Plotly force-directed graph of retrieved chunks and their
+    cross-references. Returns a plotly Figure suitable for cl.Plotly.
+
+    Nodes: retrieved chunks coloured by type, sized by rerank score.
+    Edges: explicit cross-references between chunks (from cross_refs).
+    Gold border: chunks actually cited in the answer.
+    """
+    import networkx as nx
+    import plotly.graph_objects as go
+
+    cited_ids = {c.chunk_id for c in citations}
+    chunk_by_id = {rc.chunk.id: rc.chunk for rc in chunks}
+
+    G = nx.Graph()
+
+    # Add nodes
+    for rc in chunks:
+        c = rc.chunk
+        if c.chunk_type == "recital":
+            label = f"Recital {c.paragraph or '?'}"
+        elif c.chunk_type == "annex":
+            label = f"Annex {c.article or '?'}"
+        else:
+            label = f"Art. {c.article or '?'}"
+            if c.paragraph:
+                label += f"({c.paragraph})"
+        G.add_node(c.id,
+                   label=label,
+                   cited=c.id in cited_ids,
+                   chunk_type=c.chunk_type,
+                   rerank=rc.rerank_score)
+
+    # Add edges from cross_refs
+    node_ids = set(G.nodes)
+    seen: set[tuple[str, str]] = set()
+    for rc in chunks:
+        c = rc.chunk
+        for ref_art in getattr(c, 'cross_refs', []):
+            targets = [
+                n for n in node_ids
+                if chunk_by_id.get(n) and
+                chunk_by_id[n].article == ref_art and
+                n != c.id
+            ]
+            for t in targets:
+                edge = tuple(sorted([c.id, t]))
+                if edge not in seen:
+                    seen.add(edge)
+                    G.add_edge(c.id, t)
+
+    pos = nx.spring_layout(G, seed=42, k=1.2)
+
+    # Edges
+    edge_x, edge_y = [], []
+    for u, v in G.edges():
+        x0, y0 = pos[u]
+        x1, y1 = pos[v]
+        edge_x += [x0, x1, None]
+        edge_y += [y0, y1, None]
+
+    edge_trace = go.Scatter(
+        x=edge_x, y=edge_y,
+        mode='lines',
+        line=dict(width=1.5, color='#555'),
+        hoverinfo='none',
+    )
+
+    # Nodes — split into cited and uncited for different styling
+    type_colors = {
+        'paragraph': '#4cc9f0',
+        'article':   '#4361ee',
+        'recital':   '#7209b7',
+        'annex':     '#f72585',
+    }
+
+    node_x, node_y, node_text, node_color, node_size, node_symbol = [], [], [], [], [], []
+    border_colors = []
+
+    for node_id in G.nodes:
+        x, y = pos[node_id]
+        d = G.nodes[node_id]
+        node_x.append(x)
+        node_y.append(y)
+        rerank = d.get('rerank', 0.0)
+        score_str = f" (score: {rerank:.2f})" if rerank > 0 else " (graph hop)"
+        node_text.append(f"{d['label']}{' ★' if d['cited'] else ''}{score_str}")
+        node_color.append(type_colors.get(d.get('chunk_type', 'recital'), '#888'))
+        node_size.append(20 if d['cited'] else 14)
+        border_colors.append('#f0a500' if d['cited'] else '#333')
+
+    node_trace = go.Scatter(
+        x=node_x, y=node_y,
+        mode='markers+text',
+        hoverinfo='text',
+        text=[G.nodes[n]['label'] for n in G.nodes],
+        textposition='top center',
+        hovertext=node_text,
+        marker=dict(
+            size=node_size,
+            color=node_color,
+            line=dict(width=2, color=border_colors),
+        ),
+    )
+
+    fig = go.Figure(
+        data=[edge_trace, node_trace],
+        layout=go.Layout(
+            title=dict(
+                text='Citation graph — gold = cited, size = rerank score',
+                font=dict(size=12, color='#ccc'),
+            ),
+            showlegend=False,
+            hovermode='closest',
+            margin=dict(b=20, l=5, r=5, t=40),
+            paper_bgcolor='#1a1a2e',
+            plot_bgcolor='#1a1a2e',
+            xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
+            height=350,
+            font=dict(color='#ccc'),
+        )
+    )
+    return fig
 
 @cl.on_message
 async def on_message(message: cl.Message) -> None:
@@ -227,8 +353,6 @@ async def on_message(message: cl.Message) -> None:
     # Render citations as separate message elements. Chainlit displays
     # these as source cards below the message.
     if final_result and final_result.citations:
-        # Deduplicate by chunk_id — one card per unique chunk, even if
-        # the model cited it multiple times.
         seen_chunk_ids: set[str] = set()
         elements: list = []
         chunk_by_id = {rc.chunk.id: rc.chunk for rc in final_result.chunks}
@@ -240,7 +364,6 @@ async def on_message(message: cl.Message) -> None:
             chunk = chunk_by_id.get(cite.chunk_id)
             if chunk is None:
                 continue
-
             if chunk.chunk_type == "recital":
                 label = f"Recital {chunk.paragraph or '?'}"
             elif chunk.chunk_type == "annex":
@@ -250,19 +373,23 @@ async def on_message(message: cl.Message) -> None:
                 if chunk.paragraph:
                     label += f"({chunk.paragraph})"
             label += f" — {chunk.celex_id}"
-
-            # `display="inline"` renders as a collapsible card directly
-            # beneath the assistant message. It stays put if the user
-            # closes a side panel, unlike `display="side"`.
             elements.append(cl.Text(
                 name=label,
                 content=chunk.text,
                 display="inline",
             ))
 
+        # Citation graph visualisation
+        fig = _build_citation_graph(
+            final_result.chunks, final_result.citations
+        )
+        elements.append(cl.Plotly(
+            name="Citation graph",
+            figure=fig,
+            display="inline",
+        ))
         reply.elements = elements
         await reply.update()
-
 
 # ===========================================================================
 # Section 3: Add Directive action — ingest from the UI
