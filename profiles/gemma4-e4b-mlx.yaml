@@ -1,0 +1,20 @@
+# Gemma 4 E4B — Apple Silicon (MLX). Recommended for macOS.
+profile_name: gemma4-e4b-mlx
+description: "Gemma 4 E4B, MLX inference on Apple Silicon"
+
+llm:
+  backend: mlx
+  model_file: ""             # MLX uses HF model ID, not a local file
+  hf_repo: mlx-community/gemma-4-E4B-it-4bit
+  model_name: "mlx-community/gemma-4-E4B-it-4bit"
+  port: 8080
+  n_gpu_layers: -1           # ignored for mlx
+  ctx_size: 32768
+  max_tokens: 4096
+  temperature: 0.1
+
+embedding:
+  device: mps
+
+reranker:
+  device: mps

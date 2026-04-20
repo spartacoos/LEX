@@ -346,11 +346,14 @@ async def handle_retrieve(cmd: RetrieveCmd, deps: RetrieveDeps) -> RetrieveResul
     # Single-item batch — runs in a thread pool because it's CPU/GPU bound
     # and we don't want to block the event loop on short queries.
     import asyncio
-    dense_list, sparse_list = await asyncio.to_thread(
+    dense_list, _ = await asyncio.to_thread(
         deps.embedder.embed, [cmd.query]
     )
     dense_vec = dense_list[0]
-    sparse_vec = sparse_list[0]
+    sparse_vec = deps.embedder.query_sparse(
+        cmd.query,
+        idf_load_path=deps.settings.bm25_idf_path(cmd.filters.language),
+    )
 
     # ---- 2. Hybrid search ---------------------------------------------
     collection = deps.settings.collection_name(cmd.filters.language)
@@ -390,6 +393,16 @@ async def handle_retrieve(cmd: RetrieveCmd, deps: RetrieveDeps) -> RetrieveResul
 
     # Pair each fused point with its rerank score and sort.
     scored: list[tuple[qmodels.ScoredPoint, float]] = list(zip(fused, rerank_scores))
+    CHUNK_TYPE_BOOST: dict[str, float] = {
+    "paragraph": 1.00,
+    "article":   1.00,
+    "annex":     0.90,
+    "recital":   0.85,
+    }
+    scored = [
+    (point, score * CHUNK_TYPE_BOOST.get(point.payload.get("chunk_type", "recital"), 0.85))
+    for point, score in scored
+    ]
     scored.sort(key=lambda pair: pair[1], reverse=True)
 
     # ---- 5. Keep top-K ------------------------------------------------
@@ -420,20 +433,39 @@ async def handle_retrieve(cmd: RetrieveCmd, deps: RetrieveDeps) -> RetrieveResul
 # Builds real dependencies. Tests skip this and construct RetrieveDeps
 # directly with fakes.
 # ===========================================================================
-
 def build_retrieve_deps(settings: Settings) -> RetrieveDeps:
-    """Construct the real dependencies. First call loads both BGE models."""
-    embedder = BGEEmbedder(
-        model_name=settings.embedding.model,
-        batch_size=settings.embedding.batch_size,
-        device=settings.embedding.device,
-    )
-    reranker = BGEReranker(
-        model_name=settings.reranker.model,
-        batch_size=settings.reranker.batch_size,
-        device=settings.reranker.device,
-    )
+    """
+    Build retrieval dependencies.
+    
+    Uses ModelClient (model server daemon) if the socket exists,
+    otherwise falls back to in-process model loading.
+    The interface is identical either way — callers don't need to know.
+    """
+    from .model_server import ModelClient
+
+    client = ModelClient(settings.model_socket_path())
+    if client.available:
+        log.info("retrieval.using_model_server",
+                 socket=str(settings.model_socket_path()))
+        embedder = client      # ModelClient has same .embed() / .query_sparse() interface
+        reranker = client      # ModelClient has same .rerank() interface
+    else:
+        log.info("retrieval.using_inprocess_models")
+        embedder = BGEEmbedder(
+            model_name=settings.embedding.model,
+            batch_size=settings.embedding.batch_size,
+            device=settings.embedding.device,
+        )
+        reranker = BGEReranker(
+            model_name=settings.reranker.model,
+            batch_size=settings.reranker.batch_size,
+            device=settings.reranker.device,
+        )
+
     qdrant = AsyncQdrantClient(url=settings.qdrant.url)
     return RetrieveDeps(
-        settings=settings, embedder=embedder, reranker=reranker, qdrant=qdrant,
+        settings=settings,
+        embedder=embedder,
+        reranker=reranker,
+        qdrant=qdrant,
     )

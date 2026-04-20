@@ -1,0 +1,28 @@
+# Gemma 4 E4B — GPU (CUDA or Metal). Recommended default.
+# ~4.5B effective params, fits on 8 GB VRAM with Q4_K_M.
+#
+# VRAM budget on an 8 GB card (e.g. RTX 3070/4060):
+#   LLM (E4B Q4_K_M):  ~5.3 GB
+#   BGE-M3 on GPU:     ~1.0 GB  ← would OOM on 8 GB cards
+#   BGE-M3 on CPU:     ~0 GB GPU, ~1.5 GB RAM  ← safe default
+#
+# If you have 12+ GB VRAM, change embedding.device to "auto".
+profile_name: gemma4-e4b-gpu
+description: "Gemma 4 E4B, GPU inference (CUDA/Metal), recommended default"
+
+llm:
+  backend: llamacpp
+  model_file: gemma-4-E4B-it-Q4_K_M.gguf
+  hf_repo: ggml-org/gemma-4-E4B-it-GGUF
+  model_name: gemma-4-e4b-it
+  port: 8080
+  n_gpu_layers: -1
+  ctx_size: 32768
+  max_tokens: 4096
+  temperature: 0.1
+
+embedding:
+  device: cpu                # safe on 8 GB cards; change to "auto" if 12+ GB
+
+reranker:
+  device: cpu

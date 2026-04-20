@@ -1,0 +1,20 @@
+# Gemma 4 31B — high-VRAM GPU (24+ GB). Best quality local judge.
+profile_name: gemma4-31b-gpu
+description: "Gemma 4 31B dense, GPU inference, requires 24+ GB VRAM"
+
+llm:
+  backend: llamacpp
+  model_file: gemma-4-31B-it-Q4_K_M.gguf
+  hf_repo: ggml-org/gemma-4-31B-it-GGUF
+  model_name: gemma-4-31b-it
+  port: 8081
+  n_gpu_layers: 20
+  ctx_size: 32768
+  max_tokens: 4096
+  temperature: 0.0
+
+embedding:
+  device: cpu
+
+reranker:
+  device: cpu

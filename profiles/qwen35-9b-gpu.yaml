@@ -1,0 +1,20 @@
+# Qwen 3.5 9B — GPU. Strong reasoning, good alternative judge.
+profile_name: qwen35-9b-gpu
+description: "Qwen 3.5 9B, GPU inference via llama.cpp"
+
+llm:
+  backend: llamacpp
+  model_file: Qwen3.5-9B-Q4_K_M.gguf
+  hf_repo: unsloth/Qwen3.5-9B-GGUF
+  model_name: qwen3.5-9b
+  port: 8080
+  n_gpu_layers: -1
+  ctx_size: 8192
+  max_tokens: 4096
+  temperature: 1.0
+
+embedding:
+  device: cpu
+
+reranker:
+  device: cpu

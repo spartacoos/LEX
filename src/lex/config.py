@@ -1,156 +1,170 @@
 """
 Typed configuration for LEX.
 
-## Why pydantic-settings?
+## Reading order
 
-Twelve-factor config says "config comes from the environment." Python
-has `os.getenv`, which is fine for one or two strings but collapses
-when you want types, defaults, nesting, or validation. pydantic-settings
-gives us all of that for free: a `BaseSettings` subclass reads from
-env vars (and `.env` files) and hands back a typed object.
+1.  A profile is loaded if LEX_PROFILE is set.  The profile YAML
+    provides baseline defaults for the hardware/model combination.
+2.  Individual LEX_* env vars (and .env) override the profile.
+3.  Hard-coded Python defaults are the last resort.
 
-## Reading this file
+This gives three layers of override, from coarsest to finest:
+    profile  <  .env file  <  shell env vars
 
-Each settings *group* is a nested model (Qdrant, Redis, LLM, ...). The
-top-level `Settings` class composes them. Env vars map to fields using
-the `LEX_` prefix and `__` as a nesting separator:
+## Env-var mapping
 
-    LEX_QDRANT__URL=http://localhost:6333  →  settings.qdrant.url
-    LEX_LLM__MODEL=mlx-community/gemma-4-E4B-it-4bit             →  settings.llm.model
+Nested settings use __ as the delimiter:
 
-We build a single `get_settings()` singleton so config is read once.
-Every subsystem imports `get_settings()` — nobody reads env vars directly.
+    LEX_LLM__BASE_URL       → settings.llm.base_url
+    LEX_EMBEDDING__DEVICE   → settings.embedding.device
+
+The profile name itself is:
+
+    LEX_PROFILE=gemma4-e4b-mlx
+
+Run `lex config` to write a .env interactively, or copy .env.example.
 """
 
 from __future__ import annotations
 
+import os
 from functools import lru_cache
 from pathlib import Path
+from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+import structlog
+
+log = structlog.get_logger(__name__)
 
 # ---------------------------------------------------------------------------
-# Nested groups. Each group corresponds to one subsystem.
+# Nested settings groups
 # ---------------------------------------------------------------------------
 
 class QdrantSettings(BaseModel):
-    """Connection info for the Qdrant vector DB."""
     url: str = "http://localhost:6333"
-    # Collection naming convention from SPEC §6: eurlex_{lang}_{version}.
-    # We store the *prefix* and the *version*; the language comes from the
-    # command at runtime so a single deployment can serve many languages.
     collection_prefix: str = "eurlex"
     collection_version: str = "v1"
 
 
 class RedisSettings(BaseModel):
     url: str = "redis://localhost:6379/0"
-    # Prefix for all LEX keys so we don't collide with anything else that
-    # might share this Redis.
     key_prefix: str = "lex"
 
 
 class LLMSettings(BaseModel):
     """
-    LLM endpoint config. Deliberately OpenAI-shaped: the local
-    llama-cpp-python server, OpenAI proper, a cloud vLLM endpoint, and
-    Together/Groq all speak this protocol, so swapping = change base_url.
+    LLM endpoint.  Talks OpenAI protocol regardless of backend.
+
+    Extra fields (backend, model_file, hf_repo, port, ctx_size,
+    n_gpu_layers) are used by `lex serve-llm` to *start* the local
+    server.  They are ignored when backend=remote.
     """
     base_url: str = "http://localhost:8080/v1"
-    model: str = "mlx-community/gemma-4-E4B-it-4bit"
+    model: str = "gemma-4-e4b-it"
     api_key: str = "not-needed-for-local"
-    # Generation knobs. Low temp because legal Q&A wants determinism.
+    # Which key to read from the *environment* when backend=remote.
+    # e.g. "OPENAI_API_KEY" → os.environ["OPENAI_API_KEY"]
+    api_key_env: str = ""
+
     temperature: float = 0.1
-    max_tokens: int = 1024
-    # How long to wait for a completion before giving up. Generous
-    # because CPU inference on a laptop is slow.
+    max_tokens: int = 2048
     timeout_s: float = 120.0
+
+    # Server-launch parameters (used by `lex serve-llm` only).
+    backend: Literal["llamacpp", "mlx", "remote"] = "llamacpp"
+    model_file: str = ""          # local GGUF filename inside models/
+    hf_repo: str = ""             # HF repo to download from
+    port: int = 8080
+    ctx_size: int = 32768
+    n_gpu_layers: int = -1        # -1 = all layers to GPU
+
+    @model_validator(mode="after")
+    def resolve_api_key(self) -> "LLMSettings":
+        """If api_key_env is set, read the actual key from the environment."""
+        if self.api_key_env:
+            val = os.environ.get(self.api_key_env, "")
+            if val:
+                self.api_key = val
+            else:
+                log.warning(
+                    "config.api_key_env_missing",
+                    env_var=self.api_key_env,
+                    hint="Set that env var or use a local backend",
+                )
+        return self
 
 
 class EmbeddingSettings(BaseModel):
     model: str = "BAAI/bge-m3"
-    # BGE-M3 is trained to handle up to 8192 tokens; we cap at 1024 because
-    # our chunks are at most ~1500 chars and we'd rather batch more than
-    # pad more.
     max_tokens: int = 1024
-    # Batch size tuned for laptop CPU. Raise on GPU hosts.
     batch_size: int = 16
-    # Dense dimension for BGE-M3. Hardcoded because changing the model
-    # means changing the collection schema — not a silent env-var flip.
     dense_dim: int = 1024
-    # "auto" picks cuda/mps if available, else cpu. Override to "cpu"
-    # on memory-constrained GPUs hosting an LLM — same rationale as
-    # reranker.device.
     device: str = "auto"
 
 
 class RerankerSettings(BaseModel):
     model: str = "BAAI/bge-reranker-v2-m3"
-    batch_size: int = 4 #was 16 - dropped for MPS stability on longer chunks
-    # "auto" picks cuda/mps if available, else cpu. Set explicitly to
-    # "cpu" on machines where the GPU is already hosting the LLM and
-    # embedder (e.g. 8 GB consumer cards). Takes ~1-2s per query on CPU
-    # vs ~0.1s on GPU, acceptable for interactive use.
-    device: str = "auto"  # "auto" | "cuda" | "mps" | "cpu"
+    batch_size: int = 4
+    device: str = "auto"
 
 
 class ChunkingSettings(BaseModel):
-    """See SPEC §6."""
     max_chars: int = 1500
-    # When a paragraph exceeds max_chars and we fall back to sentence
-    # splitting, we keep this many sentences of overlap between chunks
-    # so context isn't sliced through a reference.
     sentence_overlap: int = 2
 
 
 class RetrievalSettings(BaseModel):
-    top_k_dense: int = 20        # hybrid search: initial candidate pool
-    top_k_rerank: int = 5        # final answer context
-    # Hybrid fusion weights. 0.5/0.5 is a safe default; tune per language.
+    top_k_dense: int = 20
+    top_k_rerank: int = 5
     dense_weight: float = 0.5
     sparse_weight: float = 0.5
 
 
-# ---------------------------------------------------------------------------
-# Top-level settings. This is the thing the rest of the code imports.
-# ---------------------------------------------------------------------------
-
 class EvalJudgeSettings(BaseModel):
     """
-    LLM used by DeepEval as the judge during `pytest -m eval`.
+    Override the judge LLM for `pytest -m eval`.
 
-    Separate from `LLMSettings` so you can run a small fast model for
-    everyday RAG and a beefier one only when evaluating. All fields
-    optional — if `base_url` is unset, eval falls back to LLMSettings.
+    Leave base_url unset → falls back to the RAG LLM.
+    Set LEX_EVAL_JUDGE__BASE_URL + LEX_EVAL_JUDGE__MODEL to point at a
+    bigger, smarter model without touching the RAG config.
     """
     base_url: str | None = None
     model: str | None = None
-    api_key: str = "sk-local"       # placeholder for local OpenAI-protocol servers
-    timeout_s: float = 600.0        # judges can be slow on big models
-    temperature: float = 0.0        # deterministic scoring
-    max_tokens: int = 1024
+    api_key: str = "sk-local"
+    api_key_env: str = ""
+    timeout_s: float = 600.0
+    temperature: float = 0.0
+    max_tokens: int = 4096
+
+    @model_validator(mode="after")
+    def resolve_api_key(self) -> "EvalJudgeSettings":
+        if self.api_key_env:
+            val = os.environ.get(self.api_key_env, "")
+            if val:
+                self.api_key = val
+        return self
+
+
+# ---------------------------------------------------------------------------
+# Top-level Settings
+# ---------------------------------------------------------------------------
 
 class Settings(BaseSettings):
-    """
-    Read at startup. Everything downstream takes a `Settings` or reaches
-    for `get_settings()`.
-    """
     model_config = SettingsConfigDict(
         env_prefix="LEX_",
         env_nested_delimiter="__",
         env_file=".env",
         env_file_encoding="utf-8",
-        # Ignore stray env vars rather than crashing on them.
         extra="ignore",
     )
 
-    # Where on disk we cache anything that isn't a Docker volume
-    # (e.g. local copies of fetched Formex for debugging).
-    data_dir: Path = Path(".lex")
+    # Active profile name.  `lex config` writes this.
+    profile: str = ""
 
-    # Default language for commands that don't specify one.
+    data_dir: Path = Path(".lex")
     default_language: str = "en"
 
     qdrant: QdrantSettings = Field(default_factory=QdrantSettings)
@@ -162,19 +176,59 @@ class Settings(BaseSettings):
     chunking: ChunkingSettings = Field(default_factory=ChunkingSettings)
     retrieval: RetrievalSettings = Field(default_factory=RetrievalSettings)
 
-    # ---- Helpers ----------------------------------------------------------
-
     def collection_name(self, language: str) -> str:
-        """Resolve the Qdrant collection name for a given language.
+        return (
+            f"{self.qdrant.collection_prefix}"
+            f"_{language}"
+            f"_{self.qdrant.collection_version}"
+        )
 
-        Centralised so the naming scheme lives in exactly one place. If we
-        ever change the scheme (e.g. to include embedding model), we flip
-        it here and every subsystem picks it up.
-        """
-        return f"{self.qdrant.collection_prefix}_{language}_{self.qdrant.collection_version}"
+    def bm25_idf_path(self, language: str) -> Path:
+        """Path to the BM25 IDF table for a given language."""
+        return self.data_dir / f"bm25_idf_{language}.json"
+
+    def model_socket_path(self) -> Path:
+        """Unix socket path for the model server daemon."""
+        return self.data_dir / "models.sock"
+
+
+def _apply_profile(name: str) -> None:
+    """
+    Write profile overrides into os.environ *before* pydantic-settings
+    parses them.  Only sets keys that aren't already in the environment
+    (env vars always win).
+    """
+    from .profile import profile_to_env
+    for key, value in profile_to_env(name).items():
+        if key not in os.environ:
+            os.environ[key] = value
+    log.info("config.profile_applied", profile=name)
 
 
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
-    """Process-wide singleton. Read the env once, reuse forever."""
+    """
+    Process-wide singleton.
+
+    Profile is applied here — before pydantic-settings reads env vars —
+    so that individual LEX_* vars still override the profile.
+    """
+    # Peek at the env directly to avoid a partial Settings construction.
+    profile_name = os.environ.get("LEX_PROFILE", "")
+    if not profile_name:
+        # Also check .env manually (pydantic hasn't read it yet).
+        env_file = Path(".env")
+        if env_file.exists():
+            for line in env_file.read_text().splitlines():
+                line = line.strip()
+                if line.startswith("LEX_PROFILE="):
+                    profile_name = line.split("=", 1)[1].strip().strip('"').strip("'")
+                    break
+
+    if profile_name:
+        try:
+            _apply_profile(profile_name)
+        except FileNotFoundError as e:
+            log.warning("config.profile_not_found", error=str(e))
+
     return Settings()

@@ -1,0 +1,23 @@
+# Remote OpenAI-compatible endpoint (OpenAI, Anthropic via proxy, Together, etc.)
+# The LLM server is not started locally; LEX just calls the API.
+profile_name: remote-openai
+description: "Remote OpenAI-compatible API (no local LLM server needed)"
+
+llm:
+  backend: remote
+  model_file: ""
+  hf_repo: ""
+  model_name: gpt-4o-mini    # override with any model your endpoint supports
+  base_url: https://api.openai.com/v1
+  api_key_env: OPENAI_API_KEY  # name of env var holding the key
+  port: 0                    # unused
+  n_gpu_layers: 0
+  ctx_size: 128000
+  max_tokens: 4096
+  temperature: 0.1
+
+embedding:
+  device: auto
+
+reranker:
+  device: auto

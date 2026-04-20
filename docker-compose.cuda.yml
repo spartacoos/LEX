@@ -1,28 +1,28 @@
-# Optional overlay for Linux machines with an NVIDIA GPU.
-# Requires the NVIDIA Container Toolkit on the host:
+# Optional overlay: containerised llama.cpp server with NVIDIA GPU.
+# Requires NVIDIA Container Toolkit on the host:
 #   https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/install-guide.html
 #
 # Usage:
 #   docker compose -f docker-compose.yml -f docker-compose.cuda.yml up -d
 #
-# Not needed for local dev on Apple Silicon — use MLX on the host instead.
-# Not needed on Linux dev if you're running llama.cpp directly on the host.
-#
-# This file exists so "production deploy on a GPU server" is a single
-# command away when we want it.
+# The model file path comes from LEX_LLM__MODEL_FILE in your .env.
+# Make sure you've run `lex serve-llm` (or downloaded manually) first
+# so the file exists in models/.
 services:
   llm:
     image: ghcr.io/ggerganov/llama.cpp:server-cuda
     ports:
-      - "8080:8080"
+      - "${LEX_LLM__PORT:-8080}:8080"
     volumes:
-      - ./models:/models
+      - ./models:/models:ro
+    environment:
+      - LEX_LLM__MODEL_FILE=${LEX_LLM__MODEL_FILE:-gemma-4-E4B-it-Q4_K_M.gguf}
     command: >
       --host 0.0.0.0
       --port 8080
-      --model /models/gemma-2-2b-it-Q4_K_M.gguf
-      --n-gpu-layers 99
-      --ctx-size 8192
+      --model /models/${LEX_LLM__MODEL_FILE:-gemma-4-E4B-it-Q4_K_M.gguf}
+      --n-gpu-layers ${LEX_LLM__N_GPU_LAYERS:--1}
+      --ctx-size ${LEX_LLM__CTX_SIZE:-32768}
     deploy:
       resources:
         reservations:

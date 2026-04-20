@@ -5,115 +5,56 @@ description = "Natural-language Q&A over EU directives, grounded in Formex XML."
 readme = "README.md"
 requires-python = ">=3.12"
 
-# ---------------------------------------------------------------------------
-# Runtime dependencies.
-#
-# Grouped by concern so a new reader can trace: "what does LEX actually use?"
-# ---------------------------------------------------------------------------
 dependencies = [
-    # --- Typed config & data ---------------------------------------------
-    # pydantic v2 is the backbone of the whole system: every Command,
-    # every Result, every config object is a pydantic model. The
-    # "discriminated union" feature (Literal fields + Union) is what lets
-    # us model `Command = IngestCmd | RetrieveCmd | AnswerCmd` in a way
-    # the type checker actually understands.
+    # --- Typed config & data -------------------------------------------------
     "pydantic>=2.9",
     "pydantic-settings>=2.6",
-
-    # --- HTTP -------------------------------------------------------------
-    # httpx is async-capable and has sane defaults. We use it both for
-    # talking to EUR-Lex's CELLAR endpoint and for calling the local LLM
-    # (which speaks the OpenAI API over HTTP).
+    # --- HTTP ----------------------------------------------------------------
     "httpx>=0.27",
-
-    # --- XML parsing ------------------------------------------------------
-    # lxml gives us real XPath 1.0, which is how we navigate Formex.
-    # Python's stdlib ElementTree has XPath but it's a weak subset.
+    # --- XML parsing ---------------------------------------------------------
     "lxml>=5.3",
-
-    # --- ML: embeddings + reranker ---------------------------------------
-    # sentence-transformers wraps HuggingFace transformers with a clean
-    # .encode() API — we use it for the reranker (BGE-reranker-v2-m3).
-    # For BGE-M3 (embeddings), we go one level lower and drive
-    # transformers + torch directly: it's ~50 lines, gives us the sparse
-    # head alongside dense in a single forward pass, and avoids a known
-    # ABI break between FlagEmbedding and transformers v5+.
+    # --- ML: embeddings + reranker -------------------------------------------
     "sentence-transformers>=3.3",
-
-    # --- Vector store -----------------------------------------------------
-    # qdrant-client talks to the Qdrant server over gRPC/HTTP. We use the
-    # async client in handlers and the sync client in the CLI.
+    # --- Vector store --------------------------------------------------------
     "qdrant-client>=1.12",
-
-    # --- Job state + cache ------------------------------------------------
-    # Redis holds the ingestion job state machine and pub/sub for progress
-    # updates. `redis` is the official async-capable client.
+    # --- Job queue + cache ---------------------------------------------------
     "redis>=5.2",
-
-    # --- API + UI + CLI ---------------------------------------------------
+    # --- API + UI + CLI ------------------------------------------------------
     "fastapi>=0.115",
     "uvicorn[standard]>=0.32",
     "chainlit>=1.3",
     "typer>=0.13",
-
-    # --- Logging / tracing -----------------------------------------------
-    # structlog gives us structured logs with correlation IDs. Langfuse
-    # is optional — if the env var isn't set, we fall back to structlog
-    # only. This keeps the system runnable without Langfuse.
+    # --- Logging / tracing ---------------------------------------------------
     "structlog>=24.4",
     "langfuse>=2.53",
-
-    # --- Eval (used by tests, but small enough to keep in main deps) -----
+    # --- Profile loading -----------------------------------------------------
+    "pyyaml>=6.0",
+    # --- Eval ----------------------------------------------------------------
     "deepeval>=2.0",
+    "rank-bm25>=0.2.2",
 ]
 
-# ---------------------------------------------------------------------------
-# Optional LLM-server backends.
-#
-# The app itself doesn't depend on either of these — it talks OpenAI
-# protocol over HTTP, not a Python API. Install whichever server you
-# want to run locally:
-#
-#   On Apple Silicon (recommended for this project):
-#     uv sync --extra llm-mlx
-#     # then serve Gemma 4 E4B via mlx_lm.server (see README)
-#
-#   On Linux / CUDA / cloud:
-#     uv sync --extra llm-llamacpp
-#     # then run llama-cpp-python's OpenAI-compatible server
-# ---------------------------------------------------------------------------
 [project.optional-dependencies]
-# Model-serving backends. Pick one at install time based on your platform.
-#
+# Pick ONE LLM backend matching your platform.
 #   macOS Apple Silicon:   uv sync --extra llm-mlx
 #   Linux + NVIDIA GPU:    uv sync --extra llm-llamacpp
 #   Linux CPU-only:        uv sync --extra llm-llamacpp-cpu
-#
-# The LLM server itself runs as a separate process (see README). LEX
-# just needs the client library installed in the venv to launch it.
+#   Remote API only:       no extra needed
 
 llm-mlx = [
-  "mlx-lm>=0.19.0",
+    "mlx-lm>=0.19.0",
 ]
 
-# llama-cpp-python needs CUDA acceleration to be useful on GPU. The
-# "cuda" extra pulls in the prebuilt CUDA wheel from abetlen's index
-# via `[tool.uv.sources]` below. Works on CUDA 12.x drivers;
-# backward-compatible with CUDA 13 runtime (the driver exposes
-# compatible libraries).
 llm-llamacpp = [
-  "llama-cpp-python[server]>=0.3.2",
+    "llama-cpp-python[server]>=0.3.2",
 ]
 
-# CPU-only fallback — same package, but uv resolves it without the
-# CUDA wheel index.
 llm-llamacpp-cpu = [
-  "llama-cpp-python[server]>=0.3.2",
+    "llama-cpp-python[server]>=0.3.2",
 ]
 
-# Optional — only needed when you plan to use Langfuse for tracing.
 tracing = [
-  "langfuse>=2.50.0",
+    "langfuse>=2.50.0",
 ]
 
 [project.scripts]
@@ -133,16 +74,12 @@ markers = [
 testpaths = ["tests"]
 
 [tool.uv.sources]
-# When the `llm-llamacpp` extra is active, prefer abetlen's prebuilt
-# CUDA wheels over building from source. `extra-index-url` means pip
-# checks this *in addition* to PyPI, so CPU-only installs still work.
-#
-# cu124 wheels are compatible with CUDA 12.x and 13.x drivers.
+# Prebuilt CUDA wheels for llama-cpp-python (CUDA 12.x / 13.x compatible).
 llama-cpp-python = [
-  { index = "abetlen-cuda", extra = "llm-llamacpp" },
+    { index = "abetlen-cuda", extra = "llm-llamacpp" },
 ]
 
 [[tool.uv.index]]
 name = "abetlen-cuda"
-url = "https://abetlen.github.io/llama-cpp-python/whl/cu124"
+url  = "https://abetlen.github.io/llama-cpp-python/whl/cu124"
 explicit = true

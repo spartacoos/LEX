@@ -1,0 +1,23 @@
+# Gemma 4 E2B — GPU (CUDA or Metal). Smallest model, fastest inference.
+# ~2.3B effective params. Fits comfortably on any GPU with 4+ GB VRAM.
+profile_name: gemma4-e2b-gpu
+description: "Gemma 4 E2B, GPU inference (CUDA/Metal), smallest + fastest"
+
+llm:
+  backend: llamacpp
+  model_file: gemma-4-E2B-it-Q4_K_M.gguf
+  hf_repo: ggml-org/gemma-4-E2B-it-GGUF
+  model_name: gemma-4-e2b-it
+  port: 8080
+  n_gpu_layers: -1
+  ctx_size: 32768
+  max_tokens: 4096
+  temperature: 0.1
+
+embedding:
+  device: cpu                # keep embedder on CPU — E2B+embedder together
+                             # may exceed 8 GB VRAM; set to "auto" if you
+                             # have 12+ GB free after the LLM loads
+
+reranker:
+  device: cpu

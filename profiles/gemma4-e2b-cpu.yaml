@@ -1,0 +1,21 @@
+# Gemma 4 E2B — CPU-only (any platform, no GPU required)
+# Slowest but runs everywhere. ~2.3B effective params.
+profile_name: gemma4-e2b-cpu
+description: "Gemma 4 E2B, CPU inference, works on any machine"
+
+llm:
+  backend: llamacpp          # llamacpp | mlx | remote
+  model_file: gemma-4-E2B-it-Q4_K_M.gguf
+  hf_repo: ggml-org/gemma-4-E2B-it-GGUF
+  model_name: gemma-4-e2b-it
+  port: 8080
+  n_gpu_layers: 0            # 0 = CPU only
+  ctx_size: 8192
+  max_tokens: 4096
+  temperature: 0.1
+
+embedding:
+  device: cpu
+
+reranker:
+  device: cpu

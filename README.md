@@ -3,265 +3,258 @@
 Natural-language Q&A over EU directives. Local-first, reproducible,
 incrementally deployable.
 
-Ask "What penalties are provided for?" — get an answer grounded in the
-actual text, with citations back to the Article and Paragraph.
+Ask _"What penalties are provided for?"_ — get an answer grounded in
+the actual directive text, with citations back to the Article and
+Paragraph.
 
-## Stack
+---
 
-- **Ingestion** — Formex XML from EUR-Lex CELLAR, structure-preserving chunker
-- **Retrieval** — BGE-M3 dense + sparse embeddings in Qdrant, BGE-reranker-v2-m3 cross-encoder
-- **Generation** — any OpenAI-protocol LLM (MLX on Mac, llama.cpp on Linux)
-- **API** — FastAPI with SSE streaming
-- **Worker** — Redis BLPOP consumer for background ingestion
-- **UI** — Chainlit chat with inline citations
-- **Eval** — DeepEval + custom citation-correctness metric
+## Quick start (5 commands)
+
+```bash
+# 1. Clone + install (pick the extra matching your platform)
+git clone https://github.com/YOUR/LEX.git && cd LEX
+
+uv sync --extra llm-mlx          # macOS Apple Silicon  ← recommended on Mac
+uv sync --extra llm-llamacpp     # Linux + NVIDIA GPU
+uv sync --extra llm-llamacpp-cpu # Linux CPU-only / WSL without GPU
+
+# On Linux/WSL with CUDA, source this once per shell:
+source scripts/env.sh
+
+# 2. Choose your model + hardware profile (interactive wizard)
+uv run lex config
+# → writes .env with the right settings for your machine
+# → run `lex config --list` to see all available profiles
+
+# 3. Start Qdrant + Redis
+docker compose up -d
+
+# 4. Download model + start LLM server (skipped if profile=remote-*)
+uv run lex serve-llm             # terminal 1 — keep running
+
+# 5. In a new terminal: ingest a directive + open the chat UI
+uv run lex ingest 32018L1972     # terminal 2
+uv run lex ui                    # opens http://localhost:8100
+```
+
+That's it. The chat UI handles everything else.
+
+---
 
 ## Platform matrix
 
-|                        | macOS (Apple Silicon)       | Linux + NVIDIA GPU             | Linux CPU-only              |
-|------------------------|------------------------------|-------------------------------|------------------------------|
-| LLM server             | `mlx-lm` on host (Metal)     | `llama-cpp-python` on host (CUDA) | `llama-cpp-python` on host (CPU) |
-| Embedder / reranker    | PyTorch MPS                  | PyTorch CUDA                  | PyTorch CPU                  |
-| Qdrant / Redis         | Docker                       | Docker                        | Docker                       |
-| Install extra          | `--extra llm-mlx`            | `--extra llm-llamacpp`        | `--extra llm-llamacpp-cpu`   |
+| Platform | Profile | Extra |
+|---|---|---|
+| macOS Apple Silicon | `gemma4-e4b-mlx` | `--extra llm-mlx` |
+| Linux + NVIDIA GPU  | `gemma4-e4b-gpu` | `--extra llm-llamacpp` |
+| Linux CPU-only / WSL| `gemma4-e2b-cpu` | `--extra llm-llamacpp-cpu` |
+| Any (remote API)    | `remote-openai`  | _(none)_ |
 
-Windows is not supported directly — use WSL2 with the Linux path.
+Windows native is not supported — use WSL2 with the Linux path.
 
-## Quick start
+---
 
-### 1. Clone and install
+## Available profiles
 
-```bash
-git clone git@github.com:YOUR/LEX.git
-cd LEX
+| Profile | Model | VRAM / RAM | Best for |
+|---|---|---|---|
+| `gemma4-e2b-cpu` | Gemma 4 E2B Q4 | CPU only | Any machine, slowest |
+| `gemma4-e4b-gpu` | Gemma 4 E4B Q4 | ~6 GB VRAM | Default GPU recommendation |
+| `gemma4-e4b-mlx` | Gemma 4 E4B 4bit | Metal (unified) | macOS M-series |
+| `gemma4-31b-gpu` | Gemma 4 31B Q4 | 24+ GB VRAM | High-quality local judge |
+| `qwen35-9b-gpu`  | Qwen 3.5 9B Q4 | ~8 GB VRAM | Strong reasoning alternative |
+| `remote-openai`  | Any remote model | — | OpenAI / Together / Groq / Anthropic |
 
-# Pick ONE extra matching your platform:
-uv sync --extra llm-mlx              # macOS Apple Silicon
-uv sync --extra llm-llamacpp         # Linux + NVIDIA GPU
-uv sync --extra llm-llamacpp-cpu     # Linux CPU-only
-```
+Profiles live in `profiles/*.yaml`. Adding a new model = adding a new
+YAML file, zero Python changes.
 
-On Linux with CUDA, before any `uv run` command, source the env helper
-to expose the venv's bundled CUDA libraries:
-
-```bash
-source scripts/env.sh
-```
-
-(Harmless no-op on macOS. Idempotent — safe to re-source.)
-
-### 2. Start services
+### Switching profiles
 
 ```bash
-# Qdrant + Redis (all platforms).
-docker compose up -d
+# Re-run the wizard any time
+uv run lex config
+
+# Or set directly in .env:
+LEX_PROFILE=qwen35-9b-gpu
+
+# Override a single parameter without touching the profile:
+LEX_LLM__N_GPU_LAYERS=10 uv run lex serve-llm   # partial GPU offload
+
+# Split RAG model (small+fast) from eval judge (large+accurate):
+uv run lex config --profile gemma4-e4b-gpu --judge gemma4-31b-gpu
 ```
 
-### 3. Start the LLM server
+---
 
-**macOS Apple Silicon:**
+## Stack
 
-```bash
-uv run mlx_lm.server \
-  --model mlx-community/gemma-4-E4B-it-4bit \
-  --port 8080 --host 127.0.0.1
+| Concern | Choice | Why |
+|---|---|---|
+| Deps | uv | Deterministic, fast |
+| Containers | docker compose | Reproducible dev/prod |
+| Config | pydantic-settings + YAML profiles | Typed, env-backed, wizard-friendly |
+| Types/commands | pydantic v2 | Discriminated unions, validation |
+| XML parsing | lxml | XPath over Formex |
+| Embeddings | BGE-M3 (transformers) | Dense + sparse, multilingual |
+| Reranking | BGE-reranker-v2-m3 | Cross-encoder, strong on legal text |
+| Vector store | Qdrant | Hybrid search, metadata filters |
+| LLM (local) | llama-cpp-python / mlx-lm | OpenAI-protocol, GGUF, zero daemon |
+| Queue/cache | Redis | Job state machine, result cache |
+| API | FastAPI | Async, SSE streaming |
+| UI | Chainlit | Streaming, inline citations |
+| CLI | typer + rich | Subcommands, progress spinners |
+| Eval | DeepEval + pytest | RAGAS-compatible metrics |
+
+---
+
+## CLI reference
+
+```
+lex config              Interactive wizard — choose profile, write .env
+lex config --list       Show available profiles
+lex serve-llm           Download model (if needed) + start local LLM server
+lex serve-llm --gpu-layers 0   Force CPU (override profile)
+lex services            Ping Qdrant, Redis, LLM endpoint
+lex smoke               Verify config + print sample commands
+lex ingest 32018L1972   Ingest the EECC directive
+lex search "query"      Hybrid search + rerank
+lex ask "question"      Full RAG with streaming output
+lex serve               Start FastAPI server (port 8000)
+lex worker              Start Redis ingestion worker
+lex ui                  Start Chainlit UI (port 8100)
 ```
 
-**Linux + NVIDIA GPU (llama.cpp):**
-
-```bash
-# Download a GGUF model first (Gemma-4 E4B Q4_K_M, ~5.3 GB).
-mkdir -p models
-uv run hf download \
-  ggml-org/gemma-4-E4B-it-GGUF \
-  gemma-4-E4B-it-Q4_K_M.gguf \
-  --local-dir models
-
-# Run the server. --n_gpu_layers -1 offloads everything to GPU;
-# reduce if you hit OOM (E4B fits comfortably on an 8GB card).
-uv run python -m llama_cpp.server \
-  --model models/gemma-4-E4B-it-Q4_K_M.gguf \
-  --host 127.0.0.1 --port 8080 \
-  --n_gpu_layers -1
-```
-
-### 4. Configure `.env`
-
-Create `.env` in the project root with settings matching your platform.
-See `.env.example` for the full list of variables. Minimum needed:
-
-```bash
-# macOS
-LEX_LLM__BASE_URL=http://localhost:8080/v1
-LEX_LLM__MODEL=mlx-community/gemma-4-E4B-it-4bit
-LEX_LLM__MAX_TOKENS=2048
-
-# Linux
-LEX_LLM__BASE_URL=http://localhost:8080/v1
-LEX_LLM__MODEL=gemma-4-e4b-it
-LEX_LLM__MAX_TOKENS=2048
-```
-
-### 5. Ingest a directive
-
-```bash
-uv run lex ingest 32018L1972
-```
-
-### 6. Ask questions
-
-```bash
-uv run lex ask "What is a very high capacity network?"
-
-# Or run the UI:
-uv run lex ui   # opens http://localhost:8100
-```
+---
 
 ## Evaluation
 
-The eval suite runs 30 gold-standard questions through the RAG pipeline
-and scores each with DeepEval metrics. Takes ~30-45 min on a local
-judge.
-
-### Simple case — one model for both RAG and judging
-
-Use the same LLM server for both. Scores won't be great with a small
-model as judge (4B models produce invalid JSON frequently), but
-everything works.
+The eval suite runs 30 gold-standard Q/A pairs through the full RAG
+pipeline and scores each answer with DeepEval metrics. Takes 30–45 min
+on a local judge; much faster with a remote judge.
 
 ```bash
+# Simple: one model for both RAG and judging (scores will be lower)
 uv run pytest -m eval -v
-```
 
-### Split RAG (small) + judge (big)
+# Recommended: small model for RAG, big model for judging
+# Terminal 1: RAG LLM already running on port 8080
+# Terminal 2: judge LLM
+uv run lex serve-llm --profile gemma4-31b-gpu --port 8081
 
-This is the intended workflow for local dev. Small model for everyday
-RAG; large model stood up temporarily for evals.
-
-Terminal 1 — the RAG LLM (Gemma-4 E4B):
-
-```bash
-# macOS
-uv run mlx_lm.server \
-  --model mlx-community/gemma-4-E4B-it-4bit \
-  --port 8080 --host 127.0.0.1
-
-# Linux
-uv run python -m llama_cpp.server \
-  --model models/gemma-4-E4B-it-Q4_K_M.gguf \
-  --host 127.0.0.1 --port 8080 \
-  --n_gpu_layers -1
-```
-
-Terminal 2 — the judge LLM (Gemma-4 31B):
-
-```bash
-# macOS
-uv run mlx_lm.server \
-  --model mlx-community/gemma-4-31B-it-4bit \
-  --port 8081 --host 127.0.0.1
-
-# Linux — download first, then run.
-# The 31B won't fit an 8GB GPU alone; set --n_gpu_layers to a smaller
-# number to split between GPU and system RAM.
-uv run hf download \
-  ggml-org/gemma-4-31B-it-GGUF \
-  gemma-4-31B-it-Q4_K_M.gguf \
-  --local-dir models
-
-uv run python -m llama_cpp.server \
-  --model models/gemma-4-31B-it-Q4_K_M.gguf \
-  --host 127.0.0.1 --port 8081 \
-  --n_gpu_layers 20
-```
-
-Terminal 3 — run eval with the judge configured:
-
-```bash
+# Terminal 3: run eval
 export LEX_EVAL_JUDGE__BASE_URL=http://localhost:8081/v1
 export LEX_EVAL_JUDGE__MODEL=gemma-4-31b-it
+uv run pytest -m eval -v
+
+# Or use a remote judge (fastest, no extra download):
+export LEX_EVAL_JUDGE__BASE_URL=https://api.openai.com/v1
+export LEX_EVAL_JUDGE__MODEL=gpt-4o-mini
+export OPENAI_API_KEY=sk-...
 uv run pytest -m eval -v
 ```
 
 Reports land in `tests/reports/eval-YYYYMMDD-HHMMSS.{csv,md}`.
 
-### Remote judge (OpenAI, Anthropic, etc.)
+### Eval targets
 
-Any OpenAI-protocol endpoint works. Point the judge config at a remote
-service:
+| Metric | Target | What it measures |
+|---|---|---|
+| Context precision | > 0.80 | Retrieved chunks are relevant |
+| Context recall | > 0.80 | Needed info is in retrieved set |
+| Faithfulness | > 0.90 | Answer grounded in context |
+| Answer relevancy | > 0.85 | Answer addresses the question |
+| Citation correctness | > 0.90 | Cited articles match source chunks |
 
-```bash
-export LEX_EVAL_JUDGE__BASE_URL=https://api.openai.com/v1
-export LEX_EVAL_JUDGE__MODEL=gpt-4o-mini
-export LEX_EVAL_JUDGE__API_KEY=sk-...
-uv run pytest -m eval -v
-```
+---
 
-## Production deploy
-
-The `docker-compose.cuda.yml` overlay adds a containerised llama.cpp
-server with GPU access. Requires the NVIDIA Container Toolkit on the
-host.
+## Production deploy (GPU server)
 
 ```bash
-# Assumes NVIDIA Container Toolkit is installed.
+# Assumes NVIDIA Container Toolkit installed
 docker compose -f docker-compose.yml -f docker-compose.cuda.yml up -d
 
-# Then run the API + worker as usual.
+# Run API + worker
 uv run lex serve
 uv run lex worker
 ```
 
-For cloud deploys, the same compose file works on any machine with
-Docker + NVIDIA Container Toolkit.
+The CUDA compose overlay reads `LEX_LLM__MODEL_FILE`, `LEX_LLM__PORT`,
+`LEX_LLM__N_GPU_LAYERS`, and `LEX_LLM__CTX_SIZE` from your `.env`.
+
+---
 
 ## Repository layout
 
 ```
+profiles/                  Hardware/model profiles (YAML)
+  gemma4-e4b-gpu.yaml
+  gemma4-e4b-mlx.yaml
+  gemma4-e2b-cpu.yaml
+  gemma4-31b-gpu.yaml
+  qwen35-9b-gpu.yaml
+  remote-openai.yaml
+
 src/lex/
-  commands.py      Pydantic typed commands (Ingest, Retrieve, Answer)
-  engine.py        Dispatcher
-  config.py        Settings from env
-  sources.py       CELLAR fetcher (RDF → Formex XML)
-  ingestion.py     Parser, chunker, embedder, Qdrant writer
-  retrieval.py     Hybrid search + reranker
-  generation.py    RAG prompt + streaming + citation extraction
-  worker.py        Redis-queue consumer
-  api.py           FastAPI surface
-  ui.py            Chainlit chat UI
-  cli.py           Typer CLI
-  tracing.py       Langfuse shim
+  config.py          Settings (pydantic-settings, profile-aware)
+  profile.py         YAML profile loader + env-var translator
+  commands.py        All command + result types (system contract)
+  engine.py          Dispatcher
+  sources.py         CELLAR fetcher + local file adapter
+  ingestion.py       Parse → chunk → embed → write
+  retrieval.py       Hybrid search + rerank
+  generation.py      RAG prompt + streaming + citation extraction
+  worker.py          Redis queue consumer
+  api.py             FastAPI surface (SSE streaming)
+  cli.py             typer CLI (config wizard, serve-llm, etc.)
+  ui.py              Chainlit chat UI
+  tracing.py         Langfuse shim (no-op when unset)
 
 tests/
-  gold_standard.json   30 curated Q/A pairs
-  test_lex.py          Smoke tests + parametrised eval
-  conftest.py          Writes CSV + Markdown reports
+  test_lex.py        Smoke tests + parametrised eval
+  conftest.py        CSV/Markdown report writer
+  gold_standard.json 30 curated Q/A pairs
 
 scripts/
-  env.sh           Linux CUDA LD_LIBRARY_PATH helper
+  env.sh             Linux CUDA LD_LIBRARY_PATH helper
 
-docker-compose.yml        Qdrant + Redis for all platforms
-docker-compose.cuda.yml   Optional GPU LLM overlay for production
-SPEC.md                   Design doc (reference)
+docker-compose.yml        Qdrant + Redis
+docker-compose.cuda.yml   GPU LLM overlay (production)
 ```
+
+---
 
 ## Troubleshooting
 
-**`Evaluation LLM outputted an invalid JSON. Please use a better evaluation model.`** — Your judge model is too small to produce well-formed JSON. Use the split-RAG-and-judge workflow with a bigger judge (e.g. Gemma-4 31B), or point `LEX_EVAL_JUDGE__BASE_URL` at a remote API.
+**`LLM endpoint unreachable`** — Run `lex serve-llm` in a separate
+terminal before `lex ask` or `lex ui`.
 
-**`MPS backend out of memory`** — macOS only. Other processes are using Metal. Quit anything GPU-heavy, or drop `LEX_RERANKER__BATCH_SIZE=2` in `.env`.
+**`Profile 'x' not found`** — Run `lex config --list` to see available
+profiles, or run `lex config` to re-run the wizard.
 
-**`libcudart.so.12: cannot open shared object file`** (Linux) — You forgot to `source scripts/env.sh` before running `uv run …`. The script configures `LD_LIBRARY_PATH` to find the venv's bundled CUDA libraries.
+**`Evaluation LLM outputted an invalid JSON`** — Your judge model is
+too small. Use a split-judge setup with Gemma 4 31B or a remote API.
+See the Evaluation section above.
 
-**Terminal closes when running `huggingface-cli`** (Linux) — That CLI is deprecated; use `hf` instead. All commands here already use the new name.
+**`MPS backend out of memory`** (macOS) — Quit GPU-heavy apps, or set
+`LEX_RERANKER__DEVICE=cpu` in `.env`.
 
-**`llama-cpp-python` fails to install on Linux** — The prebuilt CUDA wheels are indexed via `pyproject.toml`'s `[tool.uv.sources]`. If uv still tries to build from source, it means your system lacks a compatible prebuilt. Easiest fix: install the CPU extra (`uv sync --extra llm-llamacpp-cpu`) first, then swap after verifying.
+**`libcudart.so.12: cannot open shared object file`** (Linux) — Run
+`source scripts/env.sh` before any `uv run` command.
 
-**`docker compose` not found** (Ubuntu with `docker.io`) — The compose plugin isn't bundled. Install via the official binary release:
+**`hf: command not found`** — The old `huggingface-cli` is deprecated.
+Install `huggingface_hub[cli]`: `uv pip install huggingface_hub[cli]`.
 
+**`llama-cpp-python` fails to install on Linux** — Try the CPU extra
+first: `uv sync --extra llm-llamacpp-cpu`, verify it works, then
+switch to `--extra llm-llamacpp` once you confirm your CUDA setup.
+
+**`docker compose` not found** (Ubuntu with `docker.io`) — Install the
+compose plugin:
 ```bash
 sudo mkdir -p /usr/local/lib/docker/cli-plugins
-sudo curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
+sudo curl -SL \
+  https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
   -o /usr/local/lib/docker/cli-plugins/docker-compose
 sudo chmod +x /usr/local/lib/docker/cli-plugins/docker-compose
 ```
