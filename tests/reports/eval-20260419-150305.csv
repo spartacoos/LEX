@@ -1,0 +1,2 @@
+id,category,question,context_precision,context_recall,faithfulness,answer_relevancy,citation_correctness,retrieved_articles,expected_articles,answer_chars,citations_count
+def_01,definitional,What is an electronic communications network?,1.0,1.0,0.5,1.0,1.0,2,2,706,2

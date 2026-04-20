@@ -17,7 +17,6 @@ __pycache__/
 chainlit.md
 
 # Tests / reports
-tests/reports/
 tests/__pycache__/
 
 # Editor

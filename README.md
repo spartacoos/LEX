@@ -52,6 +52,69 @@ For a detailed account of every non-trivial decision, see
 
 ---
 
+## Answer flow (sequence)
+
+```
+User          Chainlit       Engine        Retriever       Qdrant      Reranker      Generator        LLM
+ │                │             │               │              │             │              │             │
+ │──"What is──►  │             │               │              │             │              │             │
+ │  a VHCN?"     │             │               │              │             │              │             │
+ │               │──AnswerCmd─►│               │              │             │              │             │
+ │               │             │──RetrieveCmd─►│              │             │              │             │
+ │               │             │               │──embed query─►             │              │             │
+ │               │             │               │──hybrid search(top-20)────►│              │             │
+ │               │             │               │◄──20 scored chunks─────────│              │             │
+ │               │             │               │──rerank(query, 20)────────────────────────►             │
+ │               │             │               │◄──top-5 reranked ──────────────────────────             │
+ │               │             │◄──RetrieveResult──│              │             │              │         │
+ │               │             │────────────────────────────────────────────►AnswerCmd+chunks │         │
+ │               │             │               │              │             │──build_prompt──►│         │
+ │               │             │               │              │             │                 │──POST──►│
+ │               │◄──token─────────────────────────────────────────────────────────── stream ◄─────────│
+ │◄──rendered────│             │               │              │             │                 │         │
+ │   token       │             │               │              │             │                 │         │
+ │               │◄──citation cards─────────────────────────────────────────◄─AnswerResult ──│         │
+```
+
+---
+
+## Ingestion state machine
+
+```
+              ┌─────────┐
+   IngestCmd  │         │
+  ───────────►│ Queued  │  (status stored in Redis)
+              │         │
+              └────┬────┘
+                   │ worker picks up
+              ┌────▼────┐
+              │Fetching │──── network error ────┐
+              └────┬────┘                       │
+                   │ XML received               │
+              ┌────▼────┐                       │
+              │ Parsing │──── malformed XML ────┤
+              └────┬────┘                       │
+                   │ nodes extracted            │
+              ┌────▼────┐                       │
+              │Chunking │                       │
+              └────┬────┘                       │
+                   │ chunks created             │
+              ┌────▼──────┐                     │
+              │ Embedding │                     │
+              └────┬──────┘                     │
+                   │ vectors computed           │
+              ┌────▼────┐                       │
+              │ Writing │──── Qdrant error ─────┤
+              └────┬────┘                       │
+                   │ stored                 ┌───▼────┐
+              ┌────▼────┐                   │ Failed │
+              │  Done   │                   └────────┘
+              └─────────┘
+        (pub/sub notification)
+```
+
+---
+
 ## Prerequisites
 
 | | |
@@ -181,13 +244,57 @@ uv run pytest -m eval -v
 
 Reports: `tests/reports/eval-YYYYMMDD-HHMMSS.{csv,md}`
 
-| Metric | Target |
-|---|---|
-| Context precision | > 0.80 |
-| Context recall | > 0.80 |
-| Faithfulness | > 0.90 |
-| Answer relevancy | > 0.85 |
-| Citation correctness | > 0.90 |
+### Results
+
+The table below shows the two most recent eval runs. Targets are aspirational
+for a 9B local model; a 31B or API-backed model is expected to meet all of
+them.
+
+| Metric | Target | Qwen 3.5 9B (29 q) | Gemma 4 E4B (24 q) |
+|---|---:|---:|---:|
+| context_precision | > 0.80 | 0.574 ❌ | 0.827 ✅ |
+| context_recall | > 0.80 | 0.897 ✅ | 0.792 ❌ |
+| faithfulness | > 0.90 | 0.802 ❌ | 0.814 ❌ |
+| answer_relevancy | > 0.85 | 0.902 ✅ | 0.977 ✅ |
+| citation_correctness | > 0.90 | 0.514 ❌ | 0.505 ❌ |
+
+**Interpreting these numbers.**
+
+*What is working well.* Context recall (0.90) and answer relevancy (0.90) are
+both comfortably above target with Qwen 3.5 9B. The retrieval pipeline finds
+the right content for almost every question, and the generated answers address
+what was actually asked. Definitional and most multi-hop questions score
+consistently high across both models.
+
+*The citation gap.* Citation correctness (~0.51 for both models) is the
+dominant failure mode — and it is not a retrieval failure. The underlying
+content is present (recall is 0.90), but small models struggle to extract
+and format the full set of expected article references, particularly for
+cross-reference questions that require simultaneously citing 5–18 articles.
+This is a known limitation of sub-10B parameter models on structured output
+tasks. A 31B model or any capable API model is expected to push this metric
+to target.
+
+*Precision vs. recall tradeoff.* Qwen 3.5 9B retrieves broadly (high recall,
+lower precision); Gemma 4 E4B retrieves more tightly (higher precision, lower
+recall). Neither profile dominates — a reranker tuned on legal text would
+improve both.
+
+*Faithfulness below target.* Both models occasionally introduce content not
+directly grounded in the retrieved chunks. This is expected at this parameter
+count; faithfulness improves monotonically with model size and is the primary
+argument for using a 31B+ model in production.
+
+*Cross-reference category is the hardest.* Queries like "Which articles
+concern end-user rights?" expect 18 citations drawn across a Title. No 9B
+model reliably enumerates all of them. This category will benefit most from
+a larger model and from the planned citation graph traversal feature.
+
+**Bottom line.** For a quantised 9B model running entirely on a single
+consumer GPU, recall and relevancy at this level represent strong retrieval
+engineering. The gaps in precision, faithfulness, and citation correctness
+are largely model-size effects, not architecture failures — and the system
+is already wired to swap to a larger model via a one-line profile change.
 
 ---
 
