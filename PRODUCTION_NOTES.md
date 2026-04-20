@@ -28,15 +28,15 @@ Finalize production architecture, scalable inference, autoscaling, load balancin
 
 ### Track 2 — Data Pipeline & Corpus Management (6–12 weeks)
 
-Handle cross-referenced directives, annexes, amendments, and versioning. Automatic cross-linking and diff tracking introduce the largest uncertainty.
+Handle cross-referenced directives, annexes, amendments, and versioning. Automatic cross-linking and diff tracking introduce the largest uncertainty. Multi-linguality might be another non-trivial feature that could take significant efforts.
 
 ### Track 3 — Security & Compliance (4–8 weeks)
 
-Multi-tenant architecture, RBAC, audit logging, authentication, and data residency compliance.
+Multi-tenant architecture, RBAC, audit logging, authentication, and data residency compliance. Ensuring that no adverserial attacks are possible and that our model can't be used for things outside of the scope of the tool (i.e. as a general LLM interface). Also, that model usage is bounded to avoid runoff costs.
 
 ### Track 4 — Evaluation & Legal Alignment (8–14 weeks)
 
-Build a large gold dataset, adversarial testing, and eliminate hallucinated citations. Requires human legal review loops.
+Build a large gold dataset, adversarial testing, and eliminate hallucinated citations. Requires human legal review loops. Model performance is itself a moving target with a new SOTA model every 3-6 months which may force us to revaluate assumptions. Formex XML may itself continue evolving over time. 
 
 ---
 
