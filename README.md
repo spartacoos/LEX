@@ -13,6 +13,12 @@ to 74 and Articles 76 and 80, selected by the principle of proportionality [3].
 
 Sources: Art. 67(4) · Art. 68(2) · Art. 68(3) · Recital 157
 ```
+---
+## UI
+
+| | |
+|:---:|:---:|
+| ![](docs/chainlit_1.png) | ![](docs/chainlit_2.png) |
 
 ---
 
