@@ -1,0 +1,28 @@
+sequenceDiagram
+    actor U as User
+    participant UI as Chainlit
+    participant E as Engine
+    participant R as Retriever
+    participant QD as Qdrant
+    participant RR as Reranker
+    participant G as Generator
+    participant LLM as LLM
+
+    U->>UI: "What is a VHCN?"
+    UI->>E: AnswerCmd(query)
+    E->>R: RetrieveCmd(query)
+    R->>QD: embed + hybrid search (top-20)
+    QD-->>R: 20 scored chunks
+    R->>RR: rerank(query, 20 chunks)
+    RR-->>R: top-5 reranked chunks
+    R-->>E: RetrieveResult(chunks)
+    E->>G: AnswerCmd + chunks
+    G->>G: build_prompt(query, chunks)
+    G->>LLM: POST /v1/chat/completions (stream=true)
+    loop token streaming
+        LLM-->>UI: token
+        UI-->>U: rendered token
+    end
+    G->>G: extract_citations(answer, chunks)
+    G-->>E: AnswerResult(answer, citations)
+    E-->>UI: citation cards

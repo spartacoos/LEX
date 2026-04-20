@@ -54,27 +54,7 @@ For a detailed account of every non-trivial decision, see
 
 ## Answer flow (sequence)
 
-```
-User          Chainlit       Engine        Retriever       Qdrant      Reranker      Generator        LLM
- │                │             │               │              │             │              │             │
- │──"What is──►  │             │               │              │             │              │             │
- │  a VHCN?"     │             │               │              │             │              │             │
- │               │──AnswerCmd─►│               │              │             │              │             │
- │               │             │──RetrieveCmd─►│              │             │              │             │
- │               │             │               │──embed query─►             │              │             │
- │               │             │               │──hybrid search(top-20)────►│              │             │
- │               │             │               │◄──20 scored chunks─────────│              │             │
- │               │             │               │──rerank(query, 20)────────────────────────►             │
- │               │             │               │◄──top-5 reranked ──────────────────────────             │
- │               │             │◄──RetrieveResult──│              │             │              │         │
- │               │             │────────────────────────────────────────────►AnswerCmd+chunks │         │
- │               │             │               │              │             │──build_prompt──►│         │
- │               │             │               │              │             │                 │──POST──►│
- │               │◄──token─────────────────────────────────────────────────────────── stream ◄─────────│
- │◄──rendered────│             │               │              │             │                 │         │
- │   token       │             │               │              │             │                 │         │
- │               │◄──citation cards─────────────────────────────────────────◄─AnswerResult ──│         │
-```
+![Answer flow](docs/answer_flow.png)
 
 ---
 
