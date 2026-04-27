@@ -396,3 +396,7 @@ See the Docker Compose v2 install snippet in Prerequisites above.
 **`llama-cpp-python fails to install`**
 Try `uv sync --extra llm-llamacpp-cpu` first to verify the environment,
 then switch to `--extra llm-llamacpp`.
+
+## License
+
+MIT License. See [LICENSE](LICENSE).
