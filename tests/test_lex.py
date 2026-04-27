@@ -1,15 +1,18 @@
+# tests/test_lex.py
 """
 LEX integration + evaluation tests.
 
 Two test groups, separated by pytest marker:
 
-  * (unmarked) — Smoke tests. Services up, small end-to-end check. Seconds.
+  * (unmarked)        — Smoke tests. Fast, no LLM required.
+  * @pytest.mark.services — Requires live Qdrant, Redis, and LLM server.
   * @pytest.mark.eval — Full evaluation against the gold standard. Minutes.
 
 Run:
-    uv run pytest                 # fast smoke tests only
-    uv run pytest -m eval         # full evaluation suite
-    uv run pytest -m eval -v      # verbose, shows per-question progress
+    uv run pytest -m "not eval and not services"   # CI-safe smoke tests
+    uv run pytest -m services                      # service health checks
+    uv run pytest -m eval                          # full evaluation suite
+    uv run pytest -m eval -v                       # verbose, per-question progress
 """
 
 from __future__ import annotations
@@ -26,7 +29,6 @@ from lex.config import get_settings
 from lex.generation import build_answer_deps, handle_answer
 from lex.retrieval import build_retrieve_deps, handle_retrieve
 
-# Import the report collector from conftest.
 from conftest import record_eval_row
 
 
@@ -34,12 +36,13 @@ GOLD_PATH = Path(__file__).parent / "gold_standard.json"
 
 
 # ===========================================================================
-# Section 1: Smoke tests
+# Section 1: Service health checks
 #
-# These should be fast and only verify end-to-end wiring. If these fail,
-# nothing downstream will work — and the eval suite would be wasting time.
+# Require live Qdrant, Redis, and LLM. Skipped in CI.
+# Run locally with: uv run pytest -m services
 # ===========================================================================
 
+@pytest.mark.services
 @pytest.mark.asyncio
 async def test_services_reachable():
     """Qdrant, Redis, and the LLM endpoint all respond."""
@@ -57,6 +60,13 @@ async def test_services_reachable():
     assert await r.ping()
     await r.aclose()
 
+
+# ===========================================================================
+# Section 2: Smoke tests
+#
+# Fast, no LLM required. Only need Qdrant running + a directive ingested.
+# These run in CI.
+# ===========================================================================
 
 @pytest.mark.asyncio
 async def test_retrieve_end_to_end():
@@ -84,11 +94,11 @@ async def test_retrieve_end_to_end():
 
 
 # ===========================================================================
-# Section 2: Evaluation
+# Section 3: Evaluation
 #
 # Uses DeepEval to score each answer against the gold standard.
-# Also computes our own citation_correctness (fraction of expected
-# article refs that appear among the answer's citations).
+# Requires live LLM + judge model.
+# Run with: uv run pytest -m eval
 # ===========================================================================
 
 def _load_gold() -> list[dict]:
@@ -99,21 +109,17 @@ def _load_gold() -> list[dict]:
 
 def _make_deepeval_model(settings):
     """
-    Build a DeepEvalBaseLLM that points at the judge LLM.
+    Build a DeepEvalBaseLLM pointing at the judge LLM.
 
-    Uses `settings.eval_judge.base_url` when set, else falls back to
-    the RAG LLM config. This lets you run small-model RAG + big-model
-    judge with no code changes — just env vars:
+    Uses settings.eval_judge.base_url when set, else falls back to
+    the RAG LLM config. Override via env vars:
 
         export LEX_EVAL_JUDGE__BASE_URL=http://localhost:8081/v1
         export LEX_EVAL_JUDGE__MODEL=gemma-4-31b
-
-    If the judge is the same model as RAG, leave it unset.
     """
     from deepeval.models.base_model import DeepEvalBaseLLM
     from openai import OpenAI
 
-    # Pick judge endpoint + model: explicit judge settings win, RAG is fallback.
     judge_cfg = settings.eval_judge
     base_url = judge_cfg.base_url or settings.llm.base_url
     model = judge_cfg.model or settings.llm.model
@@ -151,6 +157,7 @@ def _make_deepeval_model(settings):
 
     return Judge()
 
+
 def _citation_correctness(
     expected_refs: list[str],
     actual_refs: set[str],
@@ -158,9 +165,8 @@ def _citation_correctness(
     """
     Fraction of expected article references that appear in actual citations.
 
-    Intentionally forgiving on the numerator side: a negative question
-    (expected_refs = []) scores 1.0 if the model also cited nothing, and
-    0.0 otherwise. This rewards correct refusal.
+    Empty expected_refs scores 1.0 if the model also cited nothing (correct
+    refusal), 0.0 otherwise.
     """
     if not expected_refs:
         return 1.0 if not actual_refs else 0.0
@@ -177,7 +183,7 @@ async def test_eval_question(question: dict):
     """
     Run one gold-standard question end-to-end and score it.
 
-    Each question becomes one pytest case (visible in `-v` output),
+    Each question becomes one pytest case (visible in -v output),
     and each produces one row in the CSV/Markdown report.
     """
     from deepeval.metrics import (
@@ -193,7 +199,6 @@ async def test_eval_question(question: dict):
     judge = _make_deepeval_model(settings)
 
     try:
-        # --- Run the RAG pipeline for this question ------------------
         cmd = AnswerCmd(
             query=question["question"],
             filters=RetrieveFilter(language="en", celex_id="32018L1972"),
@@ -201,17 +206,12 @@ async def test_eval_question(question: dict):
         )
         result = await handle_answer(cmd, deps)
 
-        # --- Citation correctness (our custom metric) ----------------
         expected = set(question.get("expected_article_refs", []))
         actual = {c.article for c in result.citations if c.article}
         citation_score = _citation_correctness(
             question["expected_article_refs"], actual,
         )
 
-        # --- DeepEval metrics (LLM-as-judge) -------------------------
-        # Each metric scores 0-1. We pass them the query, the generated
-        # answer, the retrieved chunks as "context", and the expected
-        # answer summary as "expected_output" (used by recall).
         test_case = LLMTestCase(
             input=question["question"],
             actual_output=result.answer,
@@ -228,13 +228,12 @@ async def test_eval_question(question: dict):
         ]:
             metric = metric_cls(
                 model=judge,
-                threshold=0.0,           # don't auto-fail — we record & judge later
-                include_reason=False,    # keep reports compact
+                threshold=0.0,
+                include_reason=False,
             )
             metric.measure(test_case)
             metrics_out[name] = float(metric.score)
 
-        # --- Record a row for the report -----------------------------
         record_eval_row({
             "id": question["id"],
             "category": question["category"],
@@ -249,7 +248,4 @@ async def test_eval_question(question: dict):
     finally:
         await deps.retrieve.qdrant.close()
 
-    # Soft assertion — we don't fail on low scores during development.
-    # The report tells us whether we're meeting targets. Flip to
-    # hard-fail in CI when we're ready to gate on quality.
     assert result.answer, "handler produced empty answer"

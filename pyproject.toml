@@ -72,6 +72,7 @@ packages = ["src/lex"]
 [tool.pytest.ini_options]
 markers = [
     "eval: evaluation tests that call the LLM (slow, costs tokens)",
+    "services: tests that require live Qdrant, Redis, and LLM server",
 ]
 testpaths = ["tests"]
 

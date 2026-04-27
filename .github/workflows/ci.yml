@@ -1,3 +1,4 @@
+# .github/workflows/ci.yml
 name: CI
 
 on:
@@ -6,28 +7,61 @@ on:
   pull_request:
     branches: [ main ]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
+
+    services:
+      qdrant:
+        image: qdrant/qdrant:v1.17.1
+        ports:
+          - 6333:6333
+        options: >-
+          --health-cmd "curl -sf http://localhost:6333/" 
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
     steps:
       - uses: actions/checkout@v4
-      
+
       - name: Install uv
-        uses: astral-sh/setup-uv@v2
+        uses: astral-sh/setup-uv@v5
         with:
           version: "latest"
-          
+
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version-file: ".python-version"
-          
+
       - name: Install dependencies
-        run: uv sync --extra llm-llamacpp-cpu
-        
-      - name: Run Type Checks
+        run: uv sync
+
+      - name: Run type checks
         run: uvx ty check src/lex/
-        
-      - name: Run Tests
-        # Assuming you have a marker to skip heavy eval tests in CI
-        run: uv run pytest -m "not eval" -v
+
+      - name: Ingest test directive
+        env:
+          LEX_QDRANT__URL: http://localhost:6333
+          LEX_REDIS__URL: redis://localhost:6379
+        run: uv run lex ingest 32018L1972
+
+      - name: Run smoke tests
+        env:
+          LEX_QDRANT__URL: http://localhost:6333
+          LEX_REDIS__URL: redis://localhost:6379
+        run: uv run pytest -m "not eval and not services" -v
