@@ -1,0 +1,33 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      
+      - name: Install uv
+        uses: astral-sh/setup-uv@v2
+        with:
+          version: "latest"
+          
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version-file: ".python-version"
+          
+      - name: Install dependencies
+        run: uv sync --extra llm-llamacpp-cpu
+        
+      - name: Run Type Checks
+        run: uvx ty check src/lex/
+        
+      - name: Run Tests
+        # Assuming you have a marker to skip heavy eval tests in CI
+        run: uv run pytest -m "not eval" -v
