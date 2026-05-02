@@ -11,16 +11,18 @@ LEX lets you ask natural-language questions over dense EU legislation and get
 grounded answers backed by specific Articles, Recitals, and citation links.
 
 ```bash
-uv run lex ask "What obligations apply to SMP undertakings?"
+uv run lex ask "What is the purpose of the European Electronic Communications Code?"
 ```
 
 ```text
-A: Where a national regulatory authority determines that imposing
-obligations is justified, it shall impose specific regulatory obligations
-on designated undertakings [1][2]. These must be chosen from Articles 69
-to 74 and Articles 76 and 80, selected by the principle of proportionality [3].
+A: The European Electronic Communications Code establishes a harmonised
+framework for the regulation of electronic communications networks,
+electronic communications services, associated facilities, and associated
+services in the Union. It sets out tasks for national regulatory authorities
+and other competent authorities, and creates procedures to ensure consistent
+application of the regulatory framework throughout the internal market.
 
-Sources: Art. 67(4) · Art. 68(2) · Art. 68(3) · Recital 157
+Sources: Art. 1(1) · Art. 1(2) · Art. 3(1)
 ```
 
 ## UI
