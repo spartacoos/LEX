@@ -47,8 +47,14 @@ from pathlib import Path
 
 import redis.asyncio as aioredis
 import structlog
-from lxml import etree
+import lxml.etree as etree
 from qdrant_client import AsyncQdrantClient, models as qmodels
+
+from inspect import isawaitable
+async def _maybe_await(value):
+    if isawaitable(value):
+        return await value
+    return value
 
 from .commands import Chunk, IngestCmd, IngestResult
 from .config import Settings
@@ -755,8 +761,8 @@ async def _set_state(
     channel = f"{deps.settings.redis.key_prefix}:job:{cmd_id}:events"
     now = datetime.now(timezone.utc).isoformat()
     payload = {"state": state, "updated_at": now, **extra}
-    await deps.redis.hset(key, mapping={k: str(v) for k, v in payload.items()})
-    await deps.redis.publish(channel, state)
+    await _maybe_await(deps.redis.hset(key, mapping={k: str(v) for k, v in payload.items()}))
+    await _maybe_await(deps.redis.publish(channel, state))
     log.info("ingest.state", cmd_id=cmd_id, state=state, **extra)
 
 

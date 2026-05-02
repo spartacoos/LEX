@@ -61,7 +61,7 @@ from typing import Protocol
 
 import httpx
 import structlog
-from lxml import etree
+import lxml.etree as etree
 
 log = structlog.get_logger(__name__)
 

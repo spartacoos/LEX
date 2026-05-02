@@ -50,7 +50,13 @@ from fastapi import FastAPI, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from .commands import AnswerCmd, IngestCmd, RetrieveCmd
+from inspect import isawaitable
+async def _maybe_await(value):
+    if isawaitable(value):
+        return await value
+    return value
+
+from .commands import AnswerCmd, AnswerResult, IngestCmd, RetrieveCmd
 from .config import get_settings
 from .engine import Engine, wire_default
 
@@ -157,7 +163,7 @@ async def get_job(cmd_id: UUID) -> JobStateResponse:
     redis: aioredis.Redis = app.state.redis
     key = f"{settings.redis.key_prefix}:job:{cmd_id}"
 
-    data = await redis.hgetall(key)
+    data = await _maybe_await(redis.hgetall(key))
     if not data:
         raise HTTPException(status_code=404, detail="Job not found")
 
@@ -258,6 +264,8 @@ async def post_ask(req: AskRequest) -> StreamingResponse:
         """Run the handler, then push sentinel + final payload."""
         try:
             result = await engine.submit(cmd, on_token=on_token)
+            if not isinstance(result, AnswerResult):
+                raise TypeError(f"Expected AnswerResult, got {type(result).__name__}")
         except Exception as e:
             log.exception("api.ask.failed", error=str(e))
             queue.put_nowait({"error": str(e)})
